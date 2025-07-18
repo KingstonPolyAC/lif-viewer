@@ -356,17 +356,27 @@ func parseLifFile(path string) (*LifData, error) {
 			continue
 		}
 		place := strings.TrimSpace(row[0])
-		if place == "" || place == "DNS" {
-			log.Printf("Row %d skipped: invalid place '%s'", i, place)
+
+		// Skip DNS entries entirely - they should not be displayed
+		if place == "" || strings.ToUpper(place) == "DNS" {
+			log.Printf("Row %d skipped: DNS entry or empty place '%s'", i, place)
 			continue
 		}
+
 		rawTime := cleanTimeString(strings.TrimSpace(row[6]))
 		var formattedTime string
 		upperPlace := strings.ToUpper(strings.TrimSpace(place))
 		upperTime := strings.ToUpper(rawTime)
 
+		// Handle DQ and DNF results - these are valid results that should be displayed
 		if upperPlace == "DQ" || upperPlace == "DNF" || upperTime == "DQ" || upperTime == "DNF" {
-			formattedTime = upperPlace
+			// For DQ/DNF, clear the place field and set time to DQ or DNF
+			if upperPlace == "DQ" || upperTime == "DQ" {
+				formattedTime = "DQ"
+			} else {
+				formattedTime = "DNF"
+			}
+			place = "" // Clear place for DQ/DNF entries
 		} else {
 			formattedTime, err = roundAndFormatTime(rawTime)
 			if err != nil {
@@ -374,6 +384,7 @@ func parseLifFile(path string) (*LifData, error) {
 				continue
 			}
 		}
+
 		competitor := Competitor{
 			Place:       place,
 			ID:          strings.TrimSpace(row[1]),
@@ -388,7 +399,7 @@ func parseLifFile(path string) (*LifData, error) {
 		return nil, fmt.Errorf("no valid competitor data found in file: %s", path)
 	}
 
-	// Split into timed and untimed
+	// Split into timed and untimed (DQ/DNF)
 	var timed, untimed []Competitor
 	for _, c := range competitors {
 		if c.Time == "DQ" || c.Time == "DNF" {
@@ -403,7 +414,7 @@ func parseLifFile(path string) (*LifData, error) {
 		tj, _ := parseTimeString(timed[j].Time)
 		return ti < tj
 	})
-	// Combine: timed first, then untimed
+	// Combine: timed first, then untimed (DQ/DNF at the end)
 	competitors = append(timed, untimed...)
 	data := &LifData{
 		FileName:    filepath.Base(path),

@@ -199,7 +199,7 @@ function App() {
   const [webInterfaceInfo, setWebInterfaceInfo] = useState("");
   const navigate = useNavigate();
 
-  // Default text multiplier set to 60% (text occupies 60% of each row’s height).
+  // Default text multiplier set to 60% (text occupies 60% of each row's height).
   const [textMultiplier, setTextMultiplier] = useState(60);
   const incrementTextMultiplier = () => setTextMultiplier(prev => Math.min(prev + 5, 200));
   const decrementTextMultiplier = () => setTextMultiplier(prev => Math.max(prev - 5, 5));
@@ -326,11 +326,11 @@ function App() {
     }
   }, [lifData && lifData.competitors ? lifData.competitors.length : 0]);
 
-  // Listen for Escape or Space to exit full screen modes.
+  // Listen for Escape ONLY (removed Space) to exit full screen modes.
   useEffect(() => {
     if (expandedTable || appFullScreen) {
       const handleKeyDown = (e) => {
-        if (e.key === 'Escape' || e.key === ' ') {
+        if (e.key === 'Escape') {
           if (expandedTable) setExpandedTable(false);
           if (appFullScreen) {
             ExitFullScreen();
@@ -396,25 +396,24 @@ function App() {
     </div>
   );
 
-  // NEW: When a new LIF file is detected or when the current lif file is updated,
-  // disable screensaver mode.
+  // When a new LIF file is detected or when the current lif file is updated,
+  // disable screensaver mode and clear active text display.
   useEffect(() => {
     if (lifData) {
       const lifDataString = JSON.stringify(lifData);
       if (prevLifData === null) {
         setPrevLifData(lifDataString);
       } else if (prevLifData !== lifDataString) {
+        console.log("New LIF data detected, clearing overlays");
         setPrevLifData(lifDataString);
-        if (screensaverActive) {
-          setScreensaverActive(false);
-        }
-        if (activeText) {
-          setActiveText("");
-        }
+        // New LIF data takes priority - clear screensaver and text display
+        setScreensaverActive(false);
+        setActiveText("");
       }
     }
-  }, [lifData, screensaverActive, prevLifData, activeText]);
-  // NEW: Function to handle linking a PNG image.
+  }, [lifData]);
+
+  // Function to handle linking a PNG image.
   const handleLinkImage = () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -430,7 +429,7 @@ function App() {
     input.click();
   };
 
-  // NEW: Function to activate screensaver mode.
+  // Function to activate screensaver mode.
   const handleScreensaver = () => {
     if (!linkedImage) {
       alert('Please link a PNG image first.');
@@ -439,7 +438,7 @@ function App() {
     setScreensaverActive(true);
   };
 
-  // NEW: Determine what to display in the top left (minimised display area).
+  // Determine what to display in the top left (minimised display area).
   // When expandedTable is active, we return null so that only the expanded view is shown.
   const renderTopLeftDisplay = () => {
     if (expandedTable) return null;
