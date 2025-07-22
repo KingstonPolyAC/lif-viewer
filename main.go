@@ -49,10 +49,11 @@ type Competitor struct {
 
 // LifData represents parsed .lif file data.
 type LifData struct {
-	FileName    string       `json:"fileName"`
-	EventName   string       `json:"eventName"`
-	Wind        string       `json:"wind"` // Wind with unit "m/s" if provided
-	Competitors []Competitor `json:"competitors"`
+	FileName     string       `json:"fileName"`
+	EventName    string       `json:"eventName"`
+	Wind         string       `json:"wind"` // Wind with unit "m/s" if provided
+	Competitors  []Competitor `json:"competitors"`
+	ModifiedTime int64        `json:"modifiedTime"`
 }
 
 // App holds the application state.
@@ -416,11 +417,17 @@ func parseLifFile(path string) (*LifData, error) {
 	})
 	// Combine: timed first, then untimed (DQ/DNF at the end)
 	competitors = append(timed, untimed...)
+
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file info: %v", err)
+	}
 	data := &LifData{
-		FileName:    filepath.Base(path),
-		EventName:   eventName,
-		Wind:        wind,
-		Competitors: competitors,
+		FileName:     filepath.Base(path),
+		EventName:    eventName,
+		Wind:         wind,
+		Competitors:  competitors,
+		ModifiedTime: fileInfo.ModTime().Unix(),
 	}
 	return data, nil
 }

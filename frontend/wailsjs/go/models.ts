@@ -27,6 +27,7 @@ export namespace main {
 	    eventName: string;
 	    wind: string;
 	    competitors: Competitor[];
+	    modifiedTime: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new LifData(source);
@@ -38,6 +39,7 @@ export namespace main {
 	        this.eventName = source["eventName"];
 	        this.wind = source["wind"];
 	        this.competitors = this.convertValues(source["competitors"], Competitor);
+	        this.modifiedTime = source["modifiedTime"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
