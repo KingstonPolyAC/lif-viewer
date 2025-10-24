@@ -173,28 +173,30 @@ function App() {
   const handleNewLifData = (newData) => {
     const newModTime = newData.modifiedTime || 0;
     const currentModTime = lastModifiedTimeRef.current;
-    
+
     // Only process if file was actually modified OR this is the very first load
     if (newModTime !== currentModTime && newModTime > 0) {
       // Save current to history BEFORE updating (only if we have valid current data)
       if (currentLifData && currentLifData.competitors && currentLifData.competitors.length > 0 && currentModTime > 0) {
         saveCurrentLifToHistory();
       }
-      
+
       // Set new data and update modification time reference
       setCurrentLifData(newData);
       lastModifiedTimeRef.current = newModTime;
-      
+
+      // ALWAYS switch to 'lif' mode when a new or changed file is detected
+      // This ensures file changes take priority over text/screensaver displays
+      setDisplayMode('lif');
+
       if (currentModTime === 0) {
         // This is the initial load
-        addDebugLog(`Initial LIF loaded: ${newData.eventName || 'Unknown'}`);
+        addDebugLog(`Initial LIF loaded: ${newData.eventName || 'Unknown'} - displaying results`);
         // Save initial data to history so Last LIF button works
         setLifDataHistory(prev => [newData, ...prev].slice(0, 5));
-        // Don't change display mode on initial load - respect current user choice
       } else {
-        // This is an update to existing data - file change takes priority
-        setDisplayMode('lif');
-        addDebugLog(`LIF file updated: ${newData.eventName || 'Unknown'} - takes priority`);
+        // This is an update to existing data
+        addDebugLog(`LIF file updated: ${newData.eventName || 'Unknown'} - takes priority over text/screensaver`);
       }
     }
   };
@@ -202,11 +204,11 @@ function App() {
   // === DATA FETCHING ===
   const fetchLatestData = async () => {
     try {
-      const response = await fetch("http://127.0.0.1:3000/latest-lif");
+      const response = await fetch("/latest-lif");
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       setError('');
-      
+
       if (Object.keys(data).length > 0 && data.modifiedTime) {
         const newModTime = data.modifiedTime;
         const currentModTime = lastModifiedTimeRef.current;
@@ -390,12 +392,17 @@ function App() {
   // Keyboard effect
   useEffect(() => {
     if (expandedTable || appFullScreen) {
-      const handleKeyDown = (e) => {
+      const handleKeyDown = async (e) => {
         if (e.key === 'Escape') {
           if (expandedTable) setExpandedTable(false);
           if (appFullScreen) {
-            ExitFullScreen();
-            setAppFullScreen(false);
+            try {
+              await ExitFullScreen();
+              setAppFullScreen(false);
+            } catch (error) {
+              console.log("Fullscreen exit unavailable (remote access)");
+              setAppFullScreen(false);
+            }
           }
         }
       };
@@ -418,13 +425,18 @@ function App() {
     }
   };
 
-  const toggleAppFullScreen = () => {
-    if (appFullScreen) {
-      ExitFullScreen();
-      setAppFullScreen(false);
-    } else {
-      EnterFullScreen();
-      setAppFullScreen(true);
+  const toggleAppFullScreen = async () => {
+    try {
+      if (appFullScreen) {
+        await ExitFullScreen();
+        setAppFullScreen(false);
+      } else {
+        await EnterFullScreen();
+        setAppFullScreen(true);
+      }
+    } catch (error) {
+      addDebugLog("Fullscreen toggle unavailable (remote access)");
+      console.log("Fullscreen controls only available in desktop app");
     }
   };
 

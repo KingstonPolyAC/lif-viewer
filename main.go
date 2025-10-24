@@ -124,13 +124,14 @@ func (a *App) watchDirectory() {
 			if !ok {
 				return
 			}
-			if filepath.Ext(event.Name) == ".lif" &&
+			ext := strings.ToLower(filepath.Ext(event.Name))
+			if (ext == ".lif" || ext == ".res") &&
 				(event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
 				log.Println("Detected change in:", event.Name)
 				time.Sleep(100 * time.Millisecond)
-				data, err := parseLifFile(event.Name)
+				data, err := parseFile(event.Name)
 				if err != nil {
-					log.Println("Error parsing .lif file:", err)
+					log.Printf("Error parsing %s file: %v", ext, err)
 					continue
 				}
 				a.mu.Lock()
@@ -146,9 +147,9 @@ func (a *App) watchDirectory() {
 	}
 }
 
-// GetAllLIFData scans the monitored directory for all .lif files,
+// GetAllLIFData scans the monitored directory for all .lif and .res files,
 // parses each file fresh, and returns a slice of pointers to LifData.
-// It does not retain previous LIF data.
+// It does not retain previous data.
 func (a *App) GetAllLIFData() ([]*LifData, error) {
 	if a.monitoredDir == "" {
 		return nil, fmt.Errorf("no directory selected")
@@ -159,14 +160,17 @@ func (a *App) GetAllLIFData() ([]*LifData, error) {
 	}
 	var results []*LifData
 	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".lif" {
-			filePath := filepath.Join(a.monitoredDir, entry.Name())
-			data, err := parseLifFile(filePath)
-			if err != nil {
-				log.Printf("Error parsing LIF file %s: %v", entry.Name(), err)
-				continue
+		if !entry.IsDir() {
+			ext := strings.ToLower(filepath.Ext(entry.Name()))
+			if ext == ".lif" || ext == ".res" {
+				filePath := filepath.Join(a.monitoredDir, entry.Name())
+				data, err := parseFile(filePath)
+				if err != nil {
+					log.Printf("Error parsing %s file %s: %v", ext, entry.Name(), err)
+					continue
+				}
+				results = append(results, data)
 			}
-			results = append(results, data)
 		}
 	}
 	return results, nil
@@ -301,6 +305,205 @@ func cleanTimeString(s string) string {
 		}
 		return r
 	}, s)
+}
+
+func parseResFile(path string) (*LifData, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	decoder, err := getDecoder(file)
+	if err != nil {
+		return nil, err
+	}
+	utf8Reader := transform.NewReader(file, decoder)
+	reader := csv.NewReader(utf8Reader)
+	reader.Comma = '\t' // TAB delimiter for .res files
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(records) < 3 {
+		return nil, fmt.Errorf("insufficient records in file: %s (expected at least 3 lines)", path)
+	}
+	for i, row := range records {
+		log.Printf("Row %d (fields: %d): %v", i, len(row), row)
+	}
+
+	// Line 0: Image information line (contains filename, wind, file size, lines per second, time and date)
+	imageInfoRow := records[0]
+	eventName := ""
+	wind := ""
+
+	// Extract event name from filename in first field if available
+	if len(imageInfoRow) > 0 {
+		filename := strings.TrimSpace(imageInfoRow[0])
+		// Remove extension and use as event name
+		eventName = strings.TrimSuffix(filename, filepath.Ext(filename))
+	}
+
+	// Extract wind information from the image info row (typically in second field)
+	if len(imageInfoRow) > 1 {
+		windVal := strings.TrimSpace(imageInfoRow[1])
+		if windVal != "" {
+			// Remove "Manual", "manual" and parentheses if present
+			windVal = strings.ReplaceAll(windVal, "Manual", "")
+			windVal = strings.ReplaceAll(windVal, "manual", "")
+			windVal = strings.ReplaceAll(windVal, "(", "")
+			windVal = strings.ReplaceAll(windVal, ")", "")
+			windVal = strings.TrimSpace(windVal)
+			if windVal != "" && windVal != "0" {
+				// Add m/s unit if not already present
+				if !strings.Contains(windVal, "m/s") {
+					wind = windVal + " m/s"
+				} else {
+					wind = windVal
+				}
+			}
+		}
+	}
+
+	// Line 1: Header row (skip it)
+	// Line 2+: Competitor data
+	// Fields: Place, Lane, Time, ID, Name (optional), Extra info (optional)
+
+	var competitors []Competitor
+	for i := 2; i < len(records); i++ {
+		row := records[i]
+		// .res files have at least 3 fields (place, lane, time) and up to 6 fields
+		if len(row) < 3 {
+			log.Printf("Row %d skipped: not enough fields (found %d, expected at least 3)", i, len(row))
+			continue
+		}
+
+		place := strings.TrimSpace(row[0])
+
+		// Skip DNS entries entirely - they should not be displayed
+		if place == "" || strings.ToUpper(place) == "DNS" {
+			log.Printf("Row %d skipped: DNS entry or empty place '%s'", i, place)
+			continue
+		}
+
+		// Field 1 is lane (not used in the display)
+
+		rawTime := ""
+		if len(row) > 2 {
+			rawTime = cleanTimeString(strings.TrimSpace(row[2]))
+		}
+
+		id := ""
+		if len(row) > 3 {
+			id = strings.TrimSpace(row[3])
+		}
+
+		name := ""
+		if len(row) > 4 {
+			name = strings.TrimSpace(row[4])
+		}
+
+		// Split name into first and last name if present
+		firstName := ""
+		lastName := ""
+		if name != "" {
+			// Try to split name (assume "FirstName LastName" format)
+			nameParts := strings.Fields(name)
+			if len(nameParts) >= 2 {
+				firstName = nameParts[0]
+				lastName = strings.Join(nameParts[1:], " ")
+			} else if len(nameParts) == 1 {
+				lastName = nameParts[0]
+			}
+		}
+
+		affiliation := ""
+		if len(row) > 5 {
+			affiliation = strings.TrimSpace(row[5])
+		}
+
+		var formattedTime string
+		upperPlace := strings.ToUpper(strings.TrimSpace(place))
+		upperTime := strings.ToUpper(rawTime)
+
+		// Handle DQ and DNF results - these are valid results that should be displayed
+		if upperPlace == "DQ" || upperPlace == "DNF" || upperTime == "DQ" || upperTime == "DNF" {
+			// For DQ/DNF, clear the place field and set time to DQ or DNF
+			if upperPlace == "DQ" || upperTime == "DQ" {
+				formattedTime = "DQ"
+			} else {
+				formattedTime = "DNF"
+			}
+			place = "" // Clear place for DQ/DNF entries
+		} else if rawTime == "" {
+			log.Printf("Row %d skipped: no time value", i)
+			continue
+		} else {
+			formattedTime, err = roundAndFormatTime(rawTime)
+			if err != nil {
+				log.Printf("Row %d skipped: error processing time '%s': %v", i, rawTime, err)
+				continue
+			}
+		}
+
+		competitor := Competitor{
+			Place:       place,
+			ID:          id,
+			FirstName:   firstName,
+			LastName:    lastName,
+			Affiliation: affiliation,
+			Time:        formattedTime,
+		}
+		competitors = append(competitors, competitor)
+	}
+
+	if len(competitors) == 0 {
+		return nil, fmt.Errorf("no valid competitor data found in file: %s", path)
+	}
+
+	// Split into timed and untimed (DQ/DNF)
+	var timed, untimed []Competitor
+	for _, c := range competitors {
+		if c.Time == "DQ" || c.Time == "DNF" {
+			untimed = append(untimed, c)
+		} else {
+			timed = append(timed, c)
+		}
+	}
+	// Sort timed by actual parsed time ascending
+	sort.Slice(timed, func(i, j int) bool {
+		ti, _ := parseTimeString(timed[i].Time)
+		tj, _ := parseTimeString(timed[j].Time)
+		return ti < tj
+	})
+	// Combine: timed first, then untimed (DQ/DNF at the end)
+	competitors = append(timed, untimed...)
+
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file info: %v", err)
+	}
+	data := &LifData{
+		FileName:     filepath.Base(path),
+		EventName:    eventName,
+		Wind:         wind,
+		Competitors:  competitors,
+		ModifiedTime: fileInfo.ModTime().Unix(),
+	}
+	return data, nil
+}
+
+// parseFile determines the file type by extension and calls the appropriate parser
+func parseFile(path string) (*LifData, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".lif":
+		return parseLifFile(path)
+	case ".res":
+		return parseResFile(path)
+	default:
+		return nil, fmt.Errorf("unsupported file type: %s", ext)
+	}
 }
 
 func parseLifFile(path string) (*LifData, error) {
@@ -488,7 +691,8 @@ func StartFiberServer(app *App) {
 		Root:  http.FS(dist),
 		Index: "index.html",
 	}))
-	if err := fiberApp.Listen("127.0.0.1:3000"); err != nil {
+	// Listen on all interfaces (0.0.0.0) to allow LAN access
+	if err := fiberApp.Listen("0.0.0.0:3000"); err != nil {
 		log.Fatal(err)
 	}
 }

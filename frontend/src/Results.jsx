@@ -16,11 +16,13 @@ function Results() {
   const [refreshFlag, setRefreshFlag] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
 
-  // Fetch LIF data every 3 seconds
+  // Fetch LIF data every 3 seconds using HTTP endpoint (works for both local and remote access)
   useEffect(() => {
     async function fetchData() {
       try {
-        const data = await GetAllLIFData();
+        const response = await fetch('/all-lif');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
         setLifDataArray(data || []);
       } catch (err) {
         console.error('Error fetching LIF data:', err);
@@ -48,22 +50,31 @@ function Results() {
   };
 
   // Toggle full screen mode: when full screen, hide the control panel.
-  const toggleFullScreen = () => {
-    if (isFullScreen) {
-      ExitFullScreen();
-      setIsFullScreen(false);
-    } else {
-      EnterFullScreen();
-      setIsFullScreen(true);
+  const toggleFullScreen = async () => {
+    try {
+      if (isFullScreen) {
+        await ExitFullScreen();
+        setIsFullScreen(false);
+      } else {
+        await EnterFullScreen();
+        setIsFullScreen(true);
+      }
+    } catch (error) {
+      console.log("Fullscreen controls only available in desktop app");
     }
   };
 
   // Listen for Esc key to exit full screen
   useEffect(() => {
-    const handleKeyDown = (e) => {
+    const handleKeyDown = async (e) => {
       if (e.key === 'Escape' && isFullScreen) {
-        ExitFullScreen();
-        setIsFullScreen(false);
+        try {
+          await ExitFullScreen();
+          setIsFullScreen(false);
+        } catch (error) {
+          console.log("Fullscreen exit unavailable (remote access)");
+          setIsFullScreen(false);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
