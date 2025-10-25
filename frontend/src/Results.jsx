@@ -20,7 +20,9 @@ function Results() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const response = await fetch('/all-lif');
+        // Use localhost:3000 for Wails desktop app, relative URL for web browser
+        const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
+        const response = await fetch(`${baseUrl}/all-lif`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
         setLifDataArray(data || []);
@@ -305,7 +307,7 @@ function Results() {
               </div>
               {/* Version Info */}
               <div>
-                <small className="text-muted">Version 1.3 - Gordon Lester - web@kingstonandpoly.org</small>
+                <small className="text-muted">Version 1.7.1 - Gordon Lester - web@kingstonandpoly.org</small>
               </div>
             </div>
           </div>

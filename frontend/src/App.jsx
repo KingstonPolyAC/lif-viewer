@@ -137,6 +137,7 @@ function App() {
   const [expandedTable, setExpandedTable] = useState(false);
   const [appFullScreen, setAppFullScreen] = useState(false);
   const [rotationIndex, setRotationIndex] = useState(0);
+  const [rotationMode, setRotationMode] = useState('scroll'); // 'scroll', 'page', or 'scrollAll'
   
   // === DEBUG STATE ===
   const [debugLog, setDebugLog] = useState([]);
@@ -204,7 +205,9 @@ function App() {
   // === DATA FETCHING ===
   const fetchLatestData = async () => {
     try {
-      const response = await fetch("/latest-lif");
+      // Use localhost:3000 for Wails desktop app, relative URL for web browser
+      const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
+      const response = await fetch(`${baseUrl}/latest-lif`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       setError('');
@@ -271,7 +274,19 @@ function App() {
   // === COMPUTED VALUES ===
   const displayedCompetitors = useMemo(() => {
     const comps = (currentLifData && currentLifData.competitors) || [];
-    if (comps.length > 8) {
+
+    if (comps.length <= 8) {
+      // If 8 or fewer competitors, just display them all
+      const result = comps.slice(0, 8);
+      while (result.length < 8) {
+        result.push({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" });
+      }
+      return result;
+    }
+
+    // More than 8 competitors - use rotation mode
+    if (rotationMode === 'scroll') {
+      // Scroll mode: top 3 locked, remaining 5 scroll
       const fixed = comps.slice(0, 3);
       const rotating = comps.slice(3);
       const windowSize = 5;
@@ -280,14 +295,28 @@ function App() {
         rollingDisplayed = rollingDisplayed.concat(rotating.slice(0, windowSize - rollingDisplayed.length));
       }
       return fixed.concat(rollingDisplayed);
-    } else {
-      const result = comps.slice(0, 8);
-      while (result.length < 8) {
+    } else if (rotationMode === 'page') {
+      // Page mode: display 8 per page (1-8, 9-16, etc.)
+      const pageSize = 8;
+      const startIndex = rotationIndex * pageSize;
+      const result = comps.slice(startIndex, startIndex + pageSize);
+      // Fill remaining slots if on last page
+      while (result.length < pageSize) {
         result.push({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" });
       }
       return result;
+    } else if (rotationMode === 'scrollAll') {
+      // Scroll All mode: all 8 positions scroll through all competitors
+      const windowSize = 8;
+      let result = comps.slice(rotationIndex, rotationIndex + windowSize);
+      if (result.length < windowSize) {
+        result = result.concat(comps.slice(0, windowSize - result.length));
+      }
+      return result;
     }
-  }, [currentLifData, rotationIndex]);
+
+    return [];
+  }, [currentLifData, rotationIndex, rotationMode]);
 
   // Track window size.
   const [windowSize, setWindowSize] = useState({
@@ -375,19 +404,50 @@ function App() {
     fetchWebInterfaceInfo();
   }, []);
 
+  // Reset rotation index when mode changes
+  useEffect(() => {
+    setRotationIndex(0);
+    addDebugLog(`Switched to ${rotationMode} mode`);
+  }, [rotationMode]);
+
   // Competitor rotation effect
   useEffect(() => {
     if (currentLifData && currentLifData.competitors && currentLifData.competitors.length > 8) {
-      const rotatingCount = currentLifData.competitors.length - 3;
-      const windowSize = 5;
-      const maxIndex = rotatingCount - windowSize;
+      const totalCompetitors = currentLifData.competitors.length;
+      let maxIndex = 0;
+      let increment = 1;
+
+      if (rotationMode === 'scroll') {
+        // Scroll mode: rotate through (totalCompetitors - 3) positions, showing 5 at a time
+        const rotatingCount = totalCompetitors - 3;
+        const windowSize = 5;
+        maxIndex = rotatingCount - windowSize;
+        increment = 1;
+      } else if (rotationMode === 'page') {
+        // Page mode: rotate through pages
+        const totalPages = Math.ceil(totalCompetitors / 8);
+        maxIndex = totalPages - 1;
+        increment = 1; // Move one page at a time
+      } else if (rotationMode === 'scrollAll') {
+        // Scroll All mode: rotate through all competitors
+        maxIndex = totalCompetitors - 1;
+        increment = 1;
+      }
+
       const intervalId = setInterval(() => {
-        setRotationIndex(prevIndex => (prevIndex >= maxIndex ? 0 : prevIndex + 1));
+        setRotationIndex(prevIndex => {
+          const nextIndex = prevIndex + increment;
+          return nextIndex > maxIndex ? 0 : nextIndex;
+        });
       }, 5000);
-      addDebugLog(`Started rotation for ${currentLifData.competitors.length} competitors`);
+
+      addDebugLog(`Started ${rotationMode} rotation for ${totalCompetitors} competitors`);
       return () => clearInterval(intervalId);
+    } else {
+      // Reset rotation index when switching to a file with 8 or fewer competitors
+      setRotationIndex(0);
     }
-  }, [currentLifData && currentLifData.competitors ? currentLifData.competitors.length : 0]);
+  }, [currentLifData && currentLifData.competitors ? currentLifData.competitors.length : 0, rotationMode]);
 
   // Keyboard effect
   useEffect(() => {
@@ -481,7 +541,8 @@ function App() {
         <tbody>
           {displayedCompetitors.map((comp, index) => {
             const competitorRowStyle = { ...rowStyle };
-            if (currentLifData && currentLifData.competitors.length > 8 && index === 2) {
+            // Show border after row 2 only in scroll mode to indicate locked top 3
+            if (currentLifData && currentLifData.competitors.length > 8 && index === 2 && rotationMode === 'scroll') {
               competitorRowStyle.borderBottom = '1px solid black';
             }
             return (
@@ -585,7 +646,8 @@ function App() {
             <tbody>
               {displayedCompetitors.map((comp, index) => {
                 const competitorRowStyle = { ...rowStyle };
-                if (currentLifData && currentLifData.competitors.length > 8 && index === 2) {
+                // Show border after row 2 only in scroll mode to indicate locked top 3
+                if (currentLifData && currentLifData.competitors.length > 8 && index === 2 && rotationMode === 'scroll') {
                   competitorRowStyle.borderBottom = '1px solid black';
                 }
                 return (
@@ -603,7 +665,7 @@ function App() {
             </tbody>
           </table>
           <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Press Esc to exit expanded table mode.</div>
-          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 1.3.3 - Gordon Lester - web@kingstonandpoly.org</div>
+          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 1.7.1 - Gordon Lester - web@kingstonandpoly.org</div>
         </div>
       );
     } else {
@@ -687,6 +749,42 @@ function App() {
               </div>
             </div>
           </div>
+
+          {/* Rotation Mode Section */}
+          <div className="mb-3 pb-3 border-bottom">
+            <h5 className="mb-3">Rotation Mode</h5>
+            <div className="row g-2">
+              <div className="col-4">
+                <button
+                  className={`btn w-100 ${rotationMode === 'scroll' ? 'btn-success' : 'btn-secondary'}`}
+                  onClick={() => setRotationMode('scroll')}
+                >
+                  Scroll
+                </button>
+              </div>
+              <div className="col-4">
+                <button
+                  className={`btn w-100 ${rotationMode === 'page' ? 'btn-success' : 'btn-secondary'}`}
+                  onClick={() => setRotationMode('page')}
+                >
+                  Page
+                </button>
+              </div>
+              <div className="col-4">
+                <button
+                  className={`btn w-100 ${rotationMode === 'scrollAll' ? 'btn-success' : 'btn-secondary'}`}
+                  onClick={() => setRotationMode('scrollAll')}
+                >
+                  Scroll All
+                </button>
+              </div>
+            </div>
+            <p className="mt-2 text-muted" style={{ fontSize: '0.85rem' }}>
+              {rotationMode === 'scroll' && 'Top 3 locked, remaining scroll'}
+              {rotationMode === 'page' && 'Pages: 1-8, 9-16, etc.'}
+              {rotationMode === 'scrollAll' && 'All positions scroll'}
+            </p>
+          </div>
           
           {/* Image/Screensaver Section */}
           <div className="mb-3 pb-3 border-bottom">
@@ -715,7 +813,7 @@ function App() {
           </div>
         </div>
         <div className="card-footer text-muted">
-          Version 1.3.7 - Gordon Lester - web@kingstonandpoly.org
+          Version 1.7.1 - Gordon Lester - web@kingstonandpoly.org
         </div>
       </div>
 
