@@ -4,6 +4,7 @@ import { GetAllLIFData, ChooseDirectory, EnterFullScreen, ExitFullScreen, GetWeb
 
 function Results() {
   const navigate = useNavigate();
+  const isDesktopApp = window.location.protocol === 'wails:';
 
   // State for LIF data and display settings
   const [lifDataArray, setLifDataArray] = useState([]);
@@ -16,7 +17,28 @@ function Results() {
   const [refreshFlag, setRefreshFlag] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
 
-  // Fetch LIF data every 3 seconds using HTTP endpoint (works for both local and remote access)
+  // New state for view mode (multi-grid or full-screen-table)
+  const [viewMode, setViewMode] = useState('multi'); // 'multi' or 'fullscreen'
+  const [currentLIF, setCurrentLIF] = useState(null); // Current single event from desktop
+  const [rotationMode, setRotationMode] = useState('scroll'); // Synced from desktop
+
+  // Display mode synced from desktop (for text/screensaver overlays)
+  const [syncedDisplayMode, setSyncedDisplayMode] = useState('lif'); // 'lif', 'text', or 'screensaver'
+  const [syncedActiveText, setSyncedActiveText] = useState('');
+  const [syncedImageBase64, setSyncedImageBase64] = useState('');
+
+  // Auto-hide control bar for web browsers
+  const [showControls, setShowControls] = useState(true);
+  const [hideTimeout, setHideTimeout] = useState(null);
+
+  // Separate rotation indices for multi-grid and full-screen modes
+  const [fullScreenRotateIndex, setFullScreenRotateIndex] = useState(0);
+
+  // Ref to measure actual control panel height
+  const controlPanelRef = React.useRef(null);
+  const [controlPanelHeight, setControlPanelHeight] = useState(120);
+
+  // Fetch all LIF data every 3 seconds using HTTP endpoint (works for both local and remote access)
   useEffect(() => {
     async function fetchData() {
       try {
@@ -35,11 +57,49 @@ function Results() {
     return () => clearInterval(interval);
   }, [refreshFlag]);
 
+  // Fetch display state from server (for current LIF, rotation mode, and display overlays)
+  useEffect(() => {
+    async function fetchDisplayState() {
+      try {
+        const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
+        const response = await fetch(`${baseUrl}/display-state`);
+        if (!response.ok) return;
+        const state = await response.json();
+
+        // Update current LIF if available
+        if (state.currentLIF) {
+          setCurrentLIF(state.currentLIF);
+        }
+
+        // Update rotation mode if available
+        if (state.rotationMode) {
+          setRotationMode(state.rotationMode);
+        }
+
+        // Update display mode and overlays (text/screensaver)
+        if (state.mode) {
+          setSyncedDisplayMode(state.mode);
+        }
+        if (state.activeText !== undefined) {
+          setSyncedActiveText(state.activeText);
+        }
+        if (state.imageBase64 !== undefined) {
+          setSyncedImageBase64(state.imageBase64);
+        }
+      } catch (err) {
+        console.error('Error fetching display state:', err);
+      }
+    }
+    fetchDisplayState();
+    const interval = setInterval(fetchDisplayState, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Text size adjustment functions
   const incrementTextMultiplier = () => setTextMultiplier(prev => Math.min(prev + 5, 200));
   const decrementTextMultiplier = () => setTextMultiplier(prev => Math.max(prev - 5, 5));
 
-  // Directory selection function
+  // Directory selection function (desktop only)
   const chooseDirectory = async () => {
     try {
       setError('');
@@ -82,6 +142,36 @@ function Results() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullScreen]);
+
+  // Auto-hide controls on mouse inactivity (web browsers only)
+  useEffect(() => {
+    if (isDesktopApp) return; // Desktop always shows controls
+
+    const handleMouseMove = () => {
+      setShowControls(true);
+
+      // Clear existing timeout
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+      }
+
+      // Set new timeout to hide controls after 3 seconds of no movement
+      const newTimeout = setTimeout(() => {
+        setShowControls(false);
+      }, 3000);
+
+      setHideTimeout(newTimeout);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+      }
+    };
+  }, [isDesktopApp, hideTimeout]);
 
   // Grid count based on layout (2x2 = 4 panels; 3x2 = 6 panels)
   const gridCount = useMemo(() => (layout === '2x2' ? 4 : 6), [layout]);
@@ -134,6 +224,21 @@ function Results() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Measure actual control panel height for accurate full-screen table sizing
+  useEffect(() => {
+    const measureControlPanel = () => {
+      if (controlPanelRef.current) {
+        const height = controlPanelRef.current.offsetHeight;
+        setControlPanelHeight(height + 10); // Add small margin
+      }
+    };
+
+    measureControlPanel();
+    // Re-measure on window resize
+    window.addEventListener('resize', measureControlPanel);
+    return () => window.removeEventListener('resize', measureControlPanel);
+  }, [showControls]);
+
   // Compute panel size (subtract extra space for control panel; here 80px)
   const panelSize = useMemo(() => {
     const columns = layout === '2x2' ? 2 : 3;
@@ -149,6 +254,21 @@ function Results() {
     return (panelSize.panelHeight / numRows) * (textMultiplier / 100);
   }, [panelSize, textMultiplier]);
 
+  // Full screen table available height (subtract control panel height)
+  // Uses measured control panel height for accurate sizing
+  const fullScreenAvailableHeight = useMemo(() => {
+    // If controls are hidden (web UI), use full height minus small margin
+    // If controls are shown, subtract measured control panel height
+    const controlHeight = (!isDesktopApp && !showControls) ? 10 : controlPanelHeight;
+    return windowSize.height - controlHeight;
+  }, [windowSize.height, isDesktopApp, showControls, controlPanelHeight]);
+
+  // Full screen table font size
+  const fullScreenFontSize = useMemo(() => {
+    const numRows = 9;
+    return (fullScreenAvailableHeight / numRows) * (textMultiplier / 100);
+  }, [fullScreenAvailableHeight, textMultiplier]);
+
   // Table cell style: clip text (no ellipsis) and no wrapping
   const tableCellStyle = {
     whiteSpace: 'nowrap',
@@ -162,6 +282,13 @@ function Results() {
   const rowStyle = {
     height: panelSize.panelHeight / 9,
     lineHeight: (panelSize.panelHeight / 9) + 'px',
+    overflow: 'hidden'
+  };
+
+  // Full screen row style (use available height after control panel)
+  const fullScreenRowStyle = {
+    height: fullScreenAvailableHeight / 9,
+    lineHeight: (fullScreenAvailableHeight / 9) + 'px',
     overflow: 'hidden'
   };
 
@@ -187,7 +314,100 @@ function Results() {
     return { col1, col2, col3, col4, col5, totalCh };
   };
 
-  // Panel component: displays a table with 1 header row and 8 competitor rows.
+  // Compute displayed competitors for full screen mode with rotation
+  const displayedCompetitors = useMemo(() => {
+    if (!currentLIF || !currentLIF.competitors) {
+      return Array(8).fill({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" });
+    }
+
+    const comps = currentLIF.competitors;
+
+    if (comps.length <= 8) {
+      // Return all with padding
+      const result = comps.slice(0, 8);
+      while (result.length < 8) {
+        result.push({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" });
+      }
+      return result;
+    }
+
+    // Apply rotation mode from desktop
+    if (rotationMode === 'scroll') {
+      // Top 3 locked, remaining 5 scroll
+      const fixed = comps.slice(0, 3);
+      const rotating = comps.slice(3);
+      const windowSize = 5;
+      let rollingDisplayed = rotating.slice(fullScreenRotateIndex, fullScreenRotateIndex + windowSize);
+      if (rollingDisplayed.length < windowSize) {
+        const needed = windowSize - rollingDisplayed.length;
+        rollingDisplayed = rollingDisplayed.concat(rotating.slice(0, needed));
+      }
+      while (rollingDisplayed.length < windowSize) {
+        rollingDisplayed.push({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" });
+      }
+      return fixed.concat(rollingDisplayed);
+    } else if (rotationMode === 'page') {
+      // 8 per page
+      const pageSize = 8;
+      const startIndex = fullScreenRotateIndex * pageSize;
+      const result = comps.slice(startIndex, startIndex + pageSize);
+      while (result.length < 8) {
+        result.push({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" });
+      }
+      return result;
+    } else if (rotationMode === 'scrollAll') {
+      // All 8 scroll
+      const windowSize = 8;
+      let result = comps.slice(fullScreenRotateIndex, fullScreenRotateIndex + windowSize);
+      if (result.length < windowSize) {
+        const needed = windowSize - result.length;
+        result = result.concat(comps.slice(0, needed));
+      }
+      while (result.length < 8) {
+        result.push({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" });
+      }
+      return result;
+    }
+  }, [currentLIF, fullScreenRotateIndex, rotationMode]);
+
+  // Track current event name to detect when event changes (not just data refresh)
+  const currentEventName = currentLIF?.eventName || '';
+
+  // Reset rotation index when event changes or rotation mode changes
+  useEffect(() => {
+    setFullScreenRotateIndex(0);
+  }, [currentEventName, rotationMode]);
+
+  // Rotation effect for full screen mode
+  useEffect(() => {
+    if (viewMode === 'fullscreen' && currentLIF && currentLIF.competitors && currentLIF.competitors.length > 8) {
+      const totalCompetitors = currentLIF.competitors.length;
+      let maxIndex = 0;
+
+      if (rotationMode === 'scroll') {
+        const rotatingCount = totalCompetitors - 3;
+        const windowSize = 5;
+        maxIndex = rotatingCount - windowSize;
+      } else if (rotationMode === 'page') {
+        const totalPages = Math.ceil(totalCompetitors / 8);
+        maxIndex = totalPages - 1;
+      } else if (rotationMode === 'scrollAll') {
+        maxIndex = totalCompetitors - 1;
+      }
+
+      const intervalId = setInterval(() => {
+        setFullScreenRotateIndex(prevIndex => {
+          const nextIndex = prevIndex + 1;
+          return nextIndex > maxIndex ? 0 : nextIndex;
+        });
+      }, 5000);
+
+      return () => clearInterval(intervalId);
+    }
+  }, [viewMode, rotationMode]);
+
+  // Panel component: displays a grid-based table with 1 header row and 8 competitor rows.
+  // CSS Grid ensures all 9 rows fit perfectly with no clipping
   const Panel = ({ data, panelFontSize, panelSize }) => {
     const competitors = data.competitors || [];
     const displayedCompetitors = competitors.length >= 8
@@ -203,54 +423,181 @@ function Results() {
       w5: (colWidths.col5 / totalCh) * 100 + '%'
     };
 
+    // CSS Grid container - guarantees exactly 9 equal rows
+    const gridContainerStyle = {
+      width: panelSize.panelWidth,
+      height: panelSize.panelHeight,
+      backgroundColor: '#000',
+      border: '1px solid #555',
+      overflow: 'hidden',
+      display: 'grid',
+      gridTemplateRows: 'repeat(9, 1fr)', // 9 equal rows (1 header + 8 competitors)
+      gridTemplateColumns: `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w4} ${colPercentages.w5}`,
+      color: 'white',
+      fontSize: panelFontSize + 'px'
+    };
+
+    const cellStyle = {
+      padding: '2px 4px',
+      overflow: 'hidden',
+      textOverflow: 'clip',
+      whiteSpace: 'nowrap',
+      display: 'flex',
+      alignItems: 'center'
+    };
+
     return (
-      <div style={{
-        width: panelSize.panelWidth,
-        height: panelSize.panelHeight,
-        backgroundColor: '#000',
-        border: '1px solid #555',
-        overflow: 'hidden'
-      }}>
-        <table style={{
-          width: '100%',
-          height: '100%',
-          tableLayout: 'fixed',
-          borderCollapse: 'collapse',
-          color: 'white',
-          fontSize: panelFontSize + 'px'
-        }}>
-          <colgroup>
-            <col style={{ width: colPercentages.w1 }} />
-            <col style={{ width: colPercentages.w2 }} />
-            <col style={{ width: colPercentages.w3 }} />
-            <col style={{ width: colPercentages.w4 }} />
-            <col style={{ width: colPercentages.w5 }} />
-          </colgroup>
-          <thead>
-            <tr style={{ backgroundColor: '#003366', fontWeight: 'bold', ...rowStyle }}>
-              <th colSpan="4" style={{ ...tableCellStyle, textAlign: 'left' }}>{data.eventName}</th>
-              <th style={{ ...tableCellStyle, textAlign: 'right', paddingRight: '1ch', overflow: 'visible' }}>{data.wind}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {displayedCompetitors.map((comp, idx) => (
-              <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#191970' : '#4682B4', ...rowStyle }}>
-                <td style={{ ...tableCellStyle, textAlign: 'left' }}>{comp.place}</td>
-                <td style={{ ...tableCellStyle, textAlign: 'left' }}>{comp.id}</td>
-                <td style={{ ...tableCellStyle, textAlign: 'left' }}>
-                  {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
-                </td>
-                <td style={{ ...tableCellStyle, textAlign: 'left' }}>{comp.affiliation}</td>
-                <td style={{ ...tableCellStyle, textAlign: 'right', paddingRight: '1ch' }}>{comp.time}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div style={gridContainerStyle}>
+        {/* Header row - spans first 4 columns for event name */}
+        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', gridColumn: '1 / 5' }}>
+          {data.eventName}
+        </div>
+        {/* Header row - 5th column for wind */}
+        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', justifyContent: 'flex-end' }}>
+          {data.wind}
+        </div>
+
+        {/* Competitor rows - each row is 5 cells */}
+        {displayedCompetitors.map((comp, idx) => {
+          const bgColor = idx % 2 === 0 ? '#191970' : '#4682B4';
+          return (
+            <React.Fragment key={idx}>
+              <div style={{ ...cellStyle, backgroundColor: bgColor }}>{comp.place}</div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor }}>{comp.id}</div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor }}>
+                {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
+              </div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor }}>{comp.affiliation}</div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor, justifyContent: 'flex-end' }}>{comp.time}</div>
+            </React.Fragment>
+          );
+        })}
       </div>
     );
   };
 
-  // Grid container style for panels, reserving extra bottom margin so panels aren’t covered.
+  // Full screen table component - matches desktop App.jsx expanded display exactly
+  const FullScreenTable = () => {
+    const containerStyle = {
+      width: '100vw',
+      height: fullScreenAvailableHeight + 'px',
+      backgroundColor: '#000',
+      overflow: 'hidden',
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      zIndex: 5
+    };
+
+    // Show text display if active (matches App.jsx)
+    if (syncedDisplayMode === 'text' && syncedActiveText) {
+      return (
+        <div style={{
+          ...containerStyle,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          color: 'white',
+          fontSize: '3rem',
+          textAlign: 'center',
+          padding: '20px',
+          whiteSpace: 'pre-line'
+        }}>
+          {syncedActiveText}
+        </div>
+      );
+    }
+
+    // Show screensaver if active (matches App.jsx)
+    if (syncedDisplayMode === 'screensaver' && syncedImageBase64) {
+      return (
+        <div style={containerStyle}>
+          <img
+            src={syncedImageBase64}
+            alt="Screensaver"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain'
+            }}
+          />
+        </div>
+      );
+    }
+
+    // Default: show LIF table (matches App.jsx)
+    if (!currentLIF || !currentLIF.competitors || currentLIF.competitors.length === 0) {
+      return (
+        <div style={{ ...containerStyle, display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'white' }}>
+          <h2>No event data available</h2>
+        </div>
+      );
+    }
+
+    const colWidths = computeColumnWidthsCh(displayedCompetitors);
+    const totalCh = colWidths.totalCh;
+    const colPercentages = {
+      w1: (colWidths.col1 / totalCh) * 100 + '%',
+      w2: (colWidths.col2 / totalCh) * 100 + '%',
+      w3: (colWidths.col3 / totalCh) * 100 + '%',
+      w4: (colWidths.col4 / totalCh) * 100 + '%',
+      w5: (colWidths.col5 / totalCh) * 100 + '%'
+    };
+
+    // CSS Grid container for full-screen table - guarantees exactly 9 equal rows
+    const gridStyle = {
+      ...containerStyle,
+      display: 'grid',
+      gridTemplateRows: 'repeat(9, 1fr)', // 9 equal rows (1 header + 8 competitors)
+      gridTemplateColumns: `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w4} ${colPercentages.w5}`,
+      color: 'white',
+      fontSize: fullScreenFontSize + 'px'
+    };
+
+    const cellStyle = {
+      padding: '2px 4px',
+      overflow: 'hidden',
+      textOverflow: 'clip',
+      whiteSpace: 'nowrap',
+      display: 'flex',
+      alignItems: 'center'
+    };
+
+    return (
+      <div style={gridStyle}>
+        {/* Header row - spans first 4 columns for event name */}
+        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', gridColumn: '1 / 5' }}>
+          {currentLIF.eventName}
+        </div>
+        {/* Header row - 5th column for wind */}
+        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', justifyContent: 'flex-end' }}>
+          {currentLIF.wind}
+        </div>
+
+        {/* Competitor rows - each row is 5 cells */}
+        {displayedCompetitors.map((comp, idx) => {
+          const bgColor = idx % 2 === 0 ? '#191970' : '#4682B4';
+          // Add border after row 2 in scroll mode to indicate locked top 3
+          const showBorder = currentLIF && currentLIF.competitors.length > 8 && idx === 2 && rotationMode === 'scroll';
+          const borderStyle = showBorder ? '3px solid black' : 'none';
+
+          return (
+            <React.Fragment key={idx}>
+              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.place}</div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.id}</div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>
+                {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
+              </div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.affiliation}</div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle, justifyContent: 'flex-end' }}>{comp.time}</div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Grid container style for panels, reserving extra bottom margin so panels aren't covered.
   const gridContainerStyle = {
     display: 'grid',
     gridTemplateColumns: layout === '2x2' ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
@@ -259,55 +606,92 @@ function Results() {
   };
 
   return (
-    <div style={{ padding: '20px', backgroundColor: '#222', height: '100vh', color: 'white', position: 'relative', overflow: 'hidden' }}>
-      <h2 style={{ textAlign: 'center' }}>Results</h2>
-      {/* Grid of Panels */}
-      <div style={gridContainerStyle}>
-        {displayedLIFs.map((lif, idx) => (
-          <Panel key={idx} data={lif} panelFontSize={panelFontSize} panelSize={panelSize} />
-        ))}
-      </div>
+    <div style={{ padding: viewMode === 'fullscreen' ? '0' : '20px', backgroundColor: '#222', minHeight: '100vh', color: 'white', position: 'relative', overflow: 'hidden' }}>
+      {viewMode === 'multi' && <h2 style={{ textAlign: 'center' }}>Results</h2>}
+
+      {/* Multi-grid view */}
+      {viewMode === 'multi' && (
+        <div style={gridContainerStyle}>
+          {displayedLIFs.map((lif, idx) => (
+            <Panel key={idx} data={lif} panelFontSize={panelFontSize} panelSize={panelSize} />
+          ))}
+        </div>
+      )}
+
+      {/* Full screen table view */}
+      {viewMode === 'fullscreen' && <FullScreenTable />}
+
       {/* Fixed control panel positioned just above the bottom */}
-      {!isFullScreen && (
-        <div className="fixed-bottom bg-dark text-white py-2" style={{ opacity: 0.95 }}>
+      {/* Desktop: always show if not full screen. Web: show only if showControls is true */}
+      {!isFullScreen && (isDesktopApp || showControls) && (
+        <div ref={controlPanelRef} className="fixed-bottom bg-dark text-white py-2" style={{ opacity: 0.95 }}>
           <div className="container-fluid">
             <div className="d-flex justify-content-around align-items-center flex-wrap">
-              {/* Back Button */}
-              <div>
-                <button className="btn btn-primary mx-1" onClick={() => navigate("/")}>Back</button>
-              </div>
-              {/* Directory Selection */}
-              <div>
-                <button className="btn btn-primary mx-1" onClick={chooseDirectory}>Select Results Directory</button>
-                {error && <span className="text-danger ml-2">{error}</span>}
-                {selectedDir && <span className="text-muted ml-2">{selectedDir}</span>}
-              </div>
-              {/* Layout Controls */}
+
+              {/* Desktop-only controls */}
+              {isDesktopApp && (
+                <>
+                  {/* Back Button */}
+                  <div>
+                    <button className="btn btn-primary mx-1" onClick={() => navigate("/")}>Back</button>
+                  </div>
+                  {/* Directory Selection */}
+                  <div>
+                    <button className="btn btn-primary mx-1" onClick={chooseDirectory}>Select Results Directory</button>
+                    {error && <span className="text-danger ml-2">{error}</span>}
+                    {selectedDir && <span className="text-muted ml-2">{selectedDir}</span>}
+                  </div>
+                  {/* Full Screen Button */}
+                  <div>
+                    <button className="btn btn-primary mx-1" onClick={toggleFullScreen}>Full Screen</button>
+                  </div>
+                </>
+              )}
+
+              {/* View Mode Toggle (web only) */}
+              {!isDesktopApp && (
+                <div className="d-flex align-items-center">
+                  <span className="mr-1">View:</span>
+                  <button
+                    className={`btn mx-1 ${viewMode === 'multi' ? 'btn-success' : 'btn-secondary'}`}
+                    onClick={() => setViewMode('multi')}
+                  >
+                    Multi Grid
+                  </button>
+                  <button
+                    className={`btn mx-1 ${viewMode === 'fullscreen' ? 'btn-success' : 'btn-secondary'}`}
+                    onClick={() => setViewMode('fullscreen')}
+                  >
+                    Full Screen Table
+                  </button>
+                </div>
+              )}
+
+              {/* Layout Controls (both desktop and web) */}
               <div className="d-flex align-items-center">
                 <span className="mr-1">Layout:</span>
                 <button className="btn btn-primary mx-1" onClick={() => setLayout('2x2')}>2x2</button>
                 <button className="btn btn-primary mx-1" onClick={() => setLayout('3x2')}>3x2</button>
               </div>
-              {/* Mode Controls */}
+
+              {/* Mode Controls (both desktop and web) */}
               <div className="d-flex align-items-center">
                 <span className="mr-1">Mode:</span>
                 <button className="btn btn-primary mx-1" onClick={() => setDisplayMode('rotate')}>Rotate</button>
                 <button className="btn btn-primary mx-1" onClick={() => setDisplayMode('latest')}>Latest</button>
               </div>
-              {/* Text Size Controls */}
+
+              {/* Text Size Controls (both desktop and web) */}
               <div className="d-flex align-items-center">
                 <span className="mr-1">Text:</span>
                 <button className="btn btn-primary mx-1" onClick={decrementTextMultiplier}>Smaller</button>
                 <button className="btn btn-primary mx-1" onClick={incrementTextMultiplier}>Larger</button>
                 <span className="ml-2">{textMultiplier}%</span>
               </div>
-              {/* Full Screen Button */}
-              <div>
-                <button className="btn btn-primary mx-1" onClick={toggleFullScreen}>Full Screen</button>
-              </div>
+
               {/* Version Info */}
               <div>
-                <small className="text-muted">Version 1.7.1 - Gordon Lester - web@kingstonandpoly.org</small>
+                <small className="text-muted">Version 2.0.0 - Gordon Lester - web@kingstonandpoly.org</small>
               </div>
             </div>
           </div>

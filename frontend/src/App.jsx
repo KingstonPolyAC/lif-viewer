@@ -189,6 +189,8 @@ function App() {
       // ALWAYS switch to 'lif' mode when a new or changed file is detected
       // This ensures file changes take priority over text/screensaver displays
       setDisplayMode('lif');
+      setActiveText(''); // Clear any active text
+      syncDisplayState('lif', '', '', null, newData); // Sync to server for LAN viewers including the new LIF data
 
       if (currentModTime === 0) {
         // This is the initial load
@@ -236,26 +238,81 @@ function App() {
     }
   };
 
+  // === DISPLAY STATE SYNC ===
+  const syncDisplayState = async (mode, text, imageBase64, rotation = null, lifData = null) => {
+    try {
+      const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
+      const payload = {
+        mode: mode,
+        activeText: text || '',
+        imageBase64: imageBase64 || ''
+      };
+      // Include rotation mode if provided, or use current rotation mode
+      if (rotation !== null) {
+        payload.rotationMode = rotation;
+      } else {
+        payload.rotationMode = rotationMode;
+      }
+      // Include current LIF if provided, or use current LIF data
+      if (lifData !== null) {
+        payload.currentLIF = lifData;
+      } else if (currentLifData) {
+        payload.currentLIF = currentLifData;
+      }
+      console.log('[Desktop] Syncing display state:', {
+        mode: payload.mode,
+        activeText: payload.activeText,
+        activeTextLength: payload.activeText.length,
+        rotationMode: payload.rotationMode,
+        currentLIF: payload.currentLIF?.eventName || 'none'
+      });
+      await fetch(`${baseUrl}/display-state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (error) {
+      console.error('Error syncing display state:', error);
+    }
+  };
+
   // === DISPLAY MODE HANDLERS ===
   const showTextDisplay = () => {
     setActiveText(inputText);
     setDisplayMode('text');
+    syncDisplayState('text', inputText, '');
     addDebugLog(`Text display: "${inputText.substring(0, 30)}..."`);
   };
 
   const clearTextDisplay = () => {
     setActiveText('');
     setDisplayMode('lif');
+    syncDisplayState('lif', '', '');
     addDebugLog('Text cleared - showing LIF');
   };
 
-  const showScreensaver = () => {
+  const showScreensaver = async () => {
     if (!linkedImage) {
       alert('Please link a PNG image first.');
       return;
     }
-    setDisplayMode('screensaver');
-    addDebugLog('Screensaver activated');
+    // Convert image to base64
+    try {
+      const response = await fetch(linkedImage);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result;
+        setDisplayMode('screensaver');
+        syncDisplayState('screensaver', '', base64);
+        addDebugLog('Screensaver activated');
+      };
+      reader.readAsDataURL(blob);
+    } catch (error) {
+      console.error('Error converting image:', error);
+      setDisplayMode('screensaver');
+      addDebugLog('Screensaver activated (without sync)');
+    }
   };
 
   const restoreLastLIF = () => {
@@ -264,6 +321,8 @@ function App() {
       setCurrentLifData(lastLIF);
       lastModifiedTimeRef.current = lastLIF.modifiedTime || 0;
       setDisplayMode('lif');
+      setActiveText('');
+      syncDisplayState('lif', '', ''); // Sync to server for LAN viewers
       setLifDataHistory(prev => prev.slice(1)); // Remove restored item
       addDebugLog(`Restored: ${lastLIF.eventName || 'Unknown'}`);
     } else {
@@ -383,10 +442,74 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Fetch display state from server (for LAN viewers)
+  const fetchDisplayState = async () => {
+    try {
+      const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
+      const response = await fetch(`${baseUrl}/display-state`);
+      if (!response.ok) return;
+      const state = await response.json();
+
+      console.log('[LAN] Fetched display state:', {
+        mode: state.mode,
+        activeText: state.activeText,
+        activeTextLength: state.activeText?.length || 0,
+        rotationMode: state.rotationMode,
+        currentDisplayMode: displayMode,
+        currentActiveText: activeText
+      });
+
+      // Update rotation mode if different
+      if (state.rotationMode && state.rotationMode !== rotationMode) {
+        setRotationMode(state.rotationMode);
+        addDebugLog(`Rotation mode synced from server: ${state.rotationMode}`);
+      }
+
+      // Update display mode to match server - always sync to ensure UI reflects server state
+      if (state.mode) {
+        if (state.mode === 'lif') {
+          console.log('[LAN] Server mode is lif - clearing display');
+          setDisplayMode('lif');
+          setActiveText('');
+          setLinkedImage('');
+          addDebugLog('Display mode synced: LIF');
+        } else if (state.mode === 'text') {
+          console.log('[LAN] Server mode is text:', state.activeText);
+          setDisplayMode('text');
+          setActiveText(state.activeText || '');
+          addDebugLog(`Display mode synced: Text - "${(state.activeText || '').substring(0, 20)}..."`);
+        } else if (state.mode === 'screensaver') {
+          console.log('[LAN] Server mode is screensaver');
+          setDisplayMode('screensaver');
+          setLinkedImage(state.imageBase64 || '');
+          addDebugLog('Display mode synced: Screensaver');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching display state:', error);
+    }
+  };
+
   // Data fetching effect - simple polling every 3 seconds
   useEffect(() => {
     fetchLatestData(); // Initial fetch
-    const interval = setInterval(fetchLatestData, 3000);
+
+    // Only fetch display state if we're NOT in the Wails desktop app
+    // Desktop app is the source of truth and only posts display state
+    const isDesktopApp = window.location.protocol === 'wails:';
+
+    const interval = setInterval(() => {
+      fetchLatestData();
+      if (!isDesktopApp) {
+        fetchDisplayState(); // LAN viewers fetch display state from server
+      }
+    }, 3000);
+
+    // Initial display state fetch for LAN viewers
+    if (!isDesktopApp) {
+      fetchDisplayState();
+    }
+
     return () => clearInterval(interval);
   }, []); // No dependencies - pure polling
 
@@ -408,6 +531,15 @@ function App() {
   useEffect(() => {
     setRotationIndex(0);
     addDebugLog(`Switched to ${rotationMode} mode`);
+  }, [rotationMode]);
+
+  // Sync rotation mode changes to server (desktop app only)
+  useEffect(() => {
+    const isDesktopApp = window.location.protocol === 'wails:';
+    if (isDesktopApp && rotationMode) {
+      syncDisplayState(displayMode, activeText, linkedImage, rotationMode);
+      addDebugLog(`Syncing rotation mode to server: ${rotationMode}`);
+    }
   }, [rotationMode]);
 
   // Competitor rotation effect
@@ -620,6 +752,36 @@ function App() {
   const renderExpandedDisplay = () => {
     if (!expandedTable) return null;
 
+    // Show text display in expanded mode if active
+    if (displayMode === 'text' && activeText) {
+      return (
+        <div style={{
+          ...expandedTableContainerStyle,
+          backgroundColor: 'black',
+          color: 'white',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          fontSize: '3rem',
+          textAlign: 'center',
+          padding: '20px',
+          whiteSpace: 'pre-line'
+        }}>
+          {activeText}
+        </div>
+      );
+    }
+
+    // Show screensaver in expanded mode if active
+    if (displayMode === 'screensaver' && linkedImage) {
+      return (
+        <div style={{ ...expandedTableContainerStyle, backgroundColor: '#000' }}>
+          <img src={linkedImage} alt="Screensaver" style={screensaverImageStyle} />
+        </div>
+      );
+    }
+
+    // Default: show LIF table or fallback
     if (currentLifData && currentLifData.competitors && currentLifData.competitors.length > 0) {
       return (
         <div style={{ ...expandedTableContainerStyle, fontSize: tableFontSize + 'px' }}>
@@ -665,7 +827,7 @@ function App() {
             </tbody>
           </table>
           <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Press Esc to exit expanded table mode.</div>
-          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 1.7.1 - Gordon Lester - web@kingstonandpoly.org</div>
+          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 2.0.0 - Gordon Lester - web@kingstonandpoly.org</div>
         </div>
       );
     } else {
@@ -817,20 +979,21 @@ function App() {
         </div>
       </div>
 
-      {/* Text Input Bar */}
-      <div style={{
-        position: 'fixed',
-        bottom: '10px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        backgroundColor: '#000',
-        color: 'white',
-        padding: '10px',
-        zIndex: 11,
-        display: 'flex',
-        gap: '10px',
-        alignItems: 'flex-start'
-      }}>
+      {/* Text Input Bar - Hidden in expanded table mode */}
+      {!expandedTable && (
+        <div style={{
+          position: 'fixed',
+          bottom: '10px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: '#000',
+          color: 'white',
+          padding: '10px',
+          zIndex: 11,
+          display: 'flex',
+          gap: '10px',
+          alignItems: 'flex-start'
+        }}>
         <textarea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
@@ -869,6 +1032,7 @@ function App() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Debug Log Display */}
       {debugLog.length > 0 && !expandedTable && (

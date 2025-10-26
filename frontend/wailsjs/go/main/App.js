@@ -18,6 +18,22 @@ export function GetAllLIFData() {
   return window['go']['main']['App']['GetAllLIFData']();
 }
 
+export function GetDisplayState() {
+  return window['go']['main']['App']['GetDisplayState']();
+}
+
 export function GetWebInterfaceInfo() {
   return window['go']['main']['App']['GetWebInterfaceInfo']();
+}
+
+export function SetCurrentLIF(arg1) {
+  return window['go']['main']['App']['SetCurrentLIF'](arg1);
+}
+
+export function SetDisplayState(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetDisplayState'](arg1, arg2, arg3);
+}
+
+export function SetRotationMode(arg1) {
+  return window['go']['main']['App']['SetRotationMode'](arg1);
 }

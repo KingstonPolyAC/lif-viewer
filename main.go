@@ -56,6 +56,15 @@ type LifData struct {
 	ModifiedTime int64        `json:"modifiedTime"`
 }
 
+// DisplayState holds the current display mode and settings
+type DisplayState struct {
+	Mode         string   `json:"mode"`         // 'lif', 'text', or 'screensaver'
+	ActiveText   string   `json:"activeText"`   // Text to display
+	ImageBase64  string   `json:"imageBase64"`  // Base64 encoded image for screensaver
+	RotationMode string   `json:"rotationMode"` // 'scroll', 'page', or 'scrollAll'
+	CurrentLIF   *LifData `json:"currentLIF"`   // Current single event LIF for full screen mode
+}
+
 // App holds the application state.
 type App struct {
 	ctx          context.Context
@@ -63,11 +72,74 @@ type App struct {
 	monitoredDir string
 	latestData   *LifData
 	watcher      *fsnotify.Watcher
+	displayState *DisplayState
 }
 
 // NewApp creates a new App instance.
 func NewApp() *App {
-	return &App{}
+	return &App{
+		displayState: &DisplayState{
+			Mode:         "lif",
+			ActiveText:   "",
+			ImageBase64:  "",
+			RotationMode: "scroll",
+		},
+	}
+}
+
+// SetDisplayState updates the current display state (called from frontend)
+func (a *App) SetDisplayState(mode string, text string, imageBase64 string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.displayState == nil {
+		a.displayState = &DisplayState{}
+	}
+	a.displayState.Mode = mode
+	a.displayState.ActiveText = text
+	a.displayState.ImageBase64 = imageBase64
+	log.Printf("Display state updated: mode=%s", mode)
+}
+
+// SetCurrentLIF updates the current LIF data for full screen display (called from frontend)
+func (a *App) SetCurrentLIF(lifData *LifData) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.displayState == nil {
+		a.displayState = &DisplayState{}
+	}
+	a.displayState.CurrentLIF = lifData
+	if lifData != nil {
+		log.Printf("Current LIF updated: %s", lifData.EventName)
+	} else {
+		log.Printf("Current LIF cleared")
+	}
+}
+
+// SetRotationMode updates the rotation mode (called from frontend)
+func (a *App) SetRotationMode(rotationMode string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.displayState == nil {
+		a.displayState = &DisplayState{
+			Mode:         "lif",
+			ActiveText:   "",
+			ImageBase64:  "",
+			RotationMode: rotationMode,
+		}
+	} else {
+		a.displayState.RotationMode = rotationMode
+	}
+	log.Printf("Rotation mode updated: %s", rotationMode)
+}
+
+// GetDisplayState returns the current display state
+func (a *App) GetDisplayState() *DisplayState {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.displayState == nil {
+		return &DisplayState{Mode: "lif", ActiveText: "", ImageBase64: "", RotationMode: "scroll"}
+	}
+	return a.displayState
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -682,11 +754,49 @@ func StartFiberServer(app *App) {
 		}
 		return c.JSON(data)
 	})
+	// API endpoint to get current display state.
+	fiberApp.Get("/display-state", func(c *fiber.Ctx) error {
+		state := app.GetDisplayState()
+		log.Printf("GET /display-state: mode=%s, activeText=%s (len=%d), rotationMode=%s",
+			state.Mode, state.ActiveText, len(state.ActiveText), state.RotationMode)
+		return c.JSON(state)
+	})
+	// API endpoint to set display state (for desktop app to sync with server).
+	fiberApp.Post("/display-state", func(c *fiber.Ctx) error {
+		var state DisplayState
+		if err := c.BodyParser(&state); err != nil {
+			return c.Status(400).JSON(map[string]interface{}{"error": err.Error()})
+		}
+		lifEvent := "none"
+		if state.CurrentLIF != nil {
+			lifEvent = state.CurrentLIF.EventName
+		}
+		log.Printf("POST /display-state: mode=%s, activeText=%s (len=%d), rotationMode=%s, currentLIF=%s",
+			state.Mode, state.ActiveText, len(state.ActiveText), state.RotationMode, lifEvent)
+		app.SetDisplayState(state.Mode, state.ActiveText, state.ImageBase64)
+		// Also update rotation mode if provided
+		if state.RotationMode != "" {
+			app.SetRotationMode(state.RotationMode)
+		}
+		// Update current LIF for full screen display
+		app.SetCurrentLIF(state.CurrentLIF)
+		return c.JSON(map[string]interface{}{"success": true})
+	})
 	// Serve static files from embedded assets using the filesystem middleware.
 	dist, err := fs.Sub(assets, "frontend/dist")
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Add cache control headers to prevent browser caching issues
+	fiberApp.Use("/", func(c *fiber.Ctx) error {
+		// For HTML files, disable caching to ensure latest version is always loaded
+		if c.Path() == "/" || c.Path() == "/index.html" {
+			c.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Set("Pragma", "no-cache")
+			c.Set("Expires", "0")
+		}
+		return c.Next()
+	})
 	fiberApp.Use("/", filesystem.New(filesystem.Config{
 		Root:  http.FS(dist),
 		Index: "index.html",
