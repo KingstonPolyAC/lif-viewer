@@ -293,22 +293,46 @@ function Results() {
   };
 
   // Compute column widths (in "ch" units) based on competitor data
+  // Columns 1, 2, 5 (Place, ID, Time) flex to fit largest value with no clipping
+  // Column 3 (Name) takes remaining space and can clip
+  // Column 4 (Affiliation) minimal if empty
   const computeColumnWidthsCh = (competitors) => {
-    let col1 = 3, col2 = 4, col3 = 5, col4 = 5, col5 = 5;
+    let col1 = 3, col2 = 4, col3 = 20, col4 = 0, col5 = 5;
     if (competitors && competitors.length > 0) {
-      col3 = competitors.reduce((max, comp) => {
-        const fullName = (comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "");
-        return fullName.length > max ? fullName.length : max;
-      }, 0) + 1;
-      const sumAffiliation = competitors.reduce((sum, comp) => sum + (comp.affiliation ? comp.affiliation.length : 0), 0);
-      const avgAffiliation = Math.ceil(sumAffiliation / competitors.length) + 1;
-      col4 = Math.min(avgAffiliation, 12);
-      const maxTime = competitors.reduce((max, comp) => {
-        const len = comp.time ? comp.time.length : 0;
+      // Col1 (Place): Calculate based on largest place value
+      const maxPlace = competitors.reduce((max, comp) => {
+        const len = comp.place ? comp.place.length : 1;
         return len > max ? len : max;
-      }, 0);
-      col5 = Math.min(maxTime + 1, 12);
-      if (col3 <= col4) { col3 = col4 + 1; }
+      }, 1);
+      col1 = maxPlace + 2; // Add 2 for padding
+
+      // Col2 (ID): Calculate based on largest ID value
+      const maxId = competitors.reduce((max, comp) => {
+        const len = comp.id ? comp.id.length : 1;
+        return len > max ? len : max;
+      }, 1);
+      col2 = maxId + 6; // Add 6 for generous padding to ensure no clipping
+
+      // Col5 (Time): Calculate based on largest time value
+      const maxTime = competitors.reduce((max, comp) => {
+        const len = comp.time ? comp.time.length : 5;
+        return len > max ? len : max;
+      }, 5);
+      col5 = maxTime + 2; // Add 2 for padding
+
+      // Col4 (Affiliation): Only allocate if there are affiliations
+      const hasAffiliation = competitors.some(comp => comp.affiliation && comp.affiliation.length > 0);
+      if (hasAffiliation) {
+        const sumAffiliation = competitors.reduce((sum, comp) => sum + (comp.affiliation ? comp.affiliation.length : 0), 0);
+        const avgAffiliation = Math.ceil(sumAffiliation / competitors.length);
+        col4 = Math.min(avgAffiliation + 2, 15);
+      } else {
+        col4 = 0; // No space if no affiliations
+      }
+
+      // Col3 (Name): Gets remaining space (will be calculated as percentage)
+      // Set to a reasonable default, actual width determined by percentage
+      col3 = 20;
     }
     const totalCh = col1 + col2 + col3 + col4 + col5;
     return { col1, col2, col3, col4, col5, totalCh };
@@ -415,11 +439,16 @@ function Results() {
       : [...competitors, ...Array(8 - competitors.length).fill({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" })];
     const colWidths = computeColumnWidthsCh(displayedCompetitors);
     const totalCh = colWidths.totalCh;
+
+    // If no affiliation column, redistribute its space to name column
+    const hasAffiliation = colWidths.col4 > 0;
+    const adjustedCol3 = hasAffiliation ? colWidths.col3 : colWidths.col3 + colWidths.col4;
+
     const colPercentages = {
       w1: (colWidths.col1 / totalCh) * 100 + '%',
       w2: (colWidths.col2 / totalCh) * 100 + '%',
-      w3: (colWidths.col3 / totalCh) * 100 + '%',
-      w4: (colWidths.col4 / totalCh) * 100 + '%',
+      w3: (adjustedCol3 / totalCh) * 100 + '%',
+      w4: hasAffiliation ? (colWidths.col4 / totalCh) * 100 + '%' : '0%',
       w5: (colWidths.col5 / totalCh) * 100 + '%'
     };
 
@@ -432,7 +461,9 @@ function Results() {
       overflow: 'hidden',
       display: 'grid',
       gridTemplateRows: 'repeat(9, 1fr)', // 9 equal rows (1 header + 8 competitors)
-      gridTemplateColumns: `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w4} ${colPercentages.w5}`,
+      gridTemplateColumns: hasAffiliation
+        ? `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w4} ${colPercentages.w5}`
+        : `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w5}`, // Skip col4 if no affiliation
       color: 'white',
       fontSize: panelFontSize + 'px'
     };
@@ -536,11 +567,16 @@ function Results() {
 
     const colWidths = computeColumnWidthsCh(displayedCompetitors);
     const totalCh = colWidths.totalCh;
+
+    // If no affiliation column, redistribute its space to name column
+    const hasAffiliation = colWidths.col4 > 0;
+    const adjustedCol3 = hasAffiliation ? colWidths.col3 : colWidths.col3 + colWidths.col4;
+
     const colPercentages = {
       w1: (colWidths.col1 / totalCh) * 100 + '%',
       w2: (colWidths.col2 / totalCh) * 100 + '%',
-      w3: (colWidths.col3 / totalCh) * 100 + '%',
-      w4: (colWidths.col4 / totalCh) * 100 + '%',
+      w3: (adjustedCol3 / totalCh) * 100 + '%',
+      w4: hasAffiliation ? (colWidths.col4 / totalCh) * 100 + '%' : '0%',
       w5: (colWidths.col5 / totalCh) * 100 + '%'
     };
 
@@ -549,7 +585,9 @@ function Results() {
       ...containerStyle,
       display: 'grid',
       gridTemplateRows: 'repeat(9, 1fr)', // 9 equal rows (1 header + 8 competitors)
-      gridTemplateColumns: `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w4} ${colPercentages.w5}`,
+      gridTemplateColumns: hasAffiliation
+        ? `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w4} ${colPercentages.w5}`
+        : `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w5}`, // Skip col4 if no affiliation
       color: 'white',
       fontSize: fullScreenFontSize + 'px'
     };
@@ -565,16 +603,16 @@ function Results() {
 
     return (
       <div style={gridStyle}>
-        {/* Header row - spans first 4 columns for event name */}
-        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', gridColumn: '1 / 5' }}>
+        {/* Header row - spans columns for event name (all but last column) */}
+        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', gridColumn: hasAffiliation ? '1 / 5' : '1 / 4' }}>
           {currentLIF.eventName}
         </div>
-        {/* Header row - 5th column for wind */}
+        {/* Header row - last column for wind */}
         <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', justifyContent: 'flex-end' }}>
           {currentLIF.wind}
         </div>
 
-        {/* Competitor rows - each row is 5 cells */}
+        {/* Competitor rows */}
         {displayedCompetitors.map((comp, idx) => {
           const bgColor = idx % 2 === 0 ? '#191970' : '#4682B4';
           // Add border after row 2 in scroll mode to indicate locked top 3
@@ -588,7 +626,7 @@ function Results() {
               <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>
                 {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
               </div>
-              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.affiliation}</div>
+              {hasAffiliation && <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.affiliation}</div>}
               <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle, justifyContent: 'flex-end' }}>{comp.time}</div>
             </React.Fragment>
           );

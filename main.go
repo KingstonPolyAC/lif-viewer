@@ -380,6 +380,9 @@ func cleanTimeString(s string) string {
 }
 
 func parseResFile(path string) (*LifData, error) {
+	// Check if this is a .txt file for special cleaning
+	isTxtFile := strings.ToLower(filepath.Ext(path)) == ".txt"
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -420,18 +423,23 @@ func parseResFile(path string) (*LifData, error) {
 	if len(imageInfoRow) > 1 {
 		windVal := strings.TrimSpace(imageInfoRow[1])
 		if windVal != "" {
-			// Remove "Manual", "manual" and parentheses if present
-			windVal = strings.ReplaceAll(windVal, "Manual", "")
-			windVal = strings.ReplaceAll(windVal, "manual", "")
-			windVal = strings.ReplaceAll(windVal, "(", "")
-			windVal = strings.ReplaceAll(windVal, ")", "")
-			windVal = strings.TrimSpace(windVal)
-			if windVal != "" && windVal != "0" {
-				// Add m/s unit if not already present
-				if !strings.Contains(windVal, "m/s") {
-					wind = windVal + " m/s"
-				} else {
-					wind = windVal
+			// For .txt files, remove "N/A" or "N/A m/s" values
+			if isTxtFile && (strings.ToUpper(windVal) == "N/A" || strings.ToUpper(windVal) == "N/A M/S") {
+				wind = ""
+			} else {
+				// Remove "Manual", "manual" and parentheses if present
+				windVal = strings.ReplaceAll(windVal, "Manual", "")
+				windVal = strings.ReplaceAll(windVal, "manual", "")
+				windVal = strings.ReplaceAll(windVal, "(", "")
+				windVal = strings.ReplaceAll(windVal, ")", "")
+				windVal = strings.TrimSpace(windVal)
+				if windVal != "" && windVal != "0" {
+					// Add m/s unit if not already present
+					if !strings.Contains(windVal, "m/s") {
+						wind = windVal + " m/s"
+					} else {
+						wind = windVal
+					}
 				}
 			}
 		}
@@ -468,11 +476,31 @@ func parseResFile(path string) (*LifData, error) {
 		id := ""
 		if len(row) > 3 {
 			id = strings.TrimSpace(row[3])
+			// For .txt files, remove anything in brackets (including brackets)
+			if isTxtFile {
+				// Remove everything from first '(' to matching ')'
+				for {
+					openIdx := strings.Index(id, "(")
+					if openIdx == -1 {
+						break
+					}
+					closeIdx := strings.Index(id[openIdx:], ")")
+					if closeIdx == -1 {
+						// No matching close bracket, remove from '(' to end
+						id = strings.TrimSpace(id[:openIdx])
+						break
+					}
+					// Remove the bracketed content
+					id = strings.TrimSpace(id[:openIdx] + id[openIdx+closeIdx+1:])
+				}
+			}
 		}
 
 		name := ""
 		if len(row) > 4 {
 			name = strings.TrimSpace(row[4])
+			// For .txt files, the name should already be clean in field 4
+			// Any numbers are in field 5 (Information), so no cleaning needed
 		}
 
 		// Split name into first and last name if present
@@ -492,6 +520,11 @@ func parseResFile(path string) (*LifData, error) {
 		affiliation := ""
 		if len(row) > 5 {
 			affiliation = strings.TrimSpace(row[5])
+			// For .txt files, field 5 is "Information" (numbers only), not affiliation
+			// We don't want to display this, so clear it
+			if isTxtFile {
+				affiliation = ""
+			}
 		}
 
 		var formattedTime string
