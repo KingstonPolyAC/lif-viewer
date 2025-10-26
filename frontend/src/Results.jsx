@@ -311,7 +311,7 @@ function Results() {
         const len = comp.id ? comp.id.length : 1;
         return len > max ? len : max;
       }, 1);
-      col2 = maxId + 6; // Add 6 for generous padding to ensure no clipping
+      col2 = Math.max(maxId * 1.5, maxId + 10); // Multiply by 1.5 or add 10, whichever is larger
 
       // Col5 (Time): Calculate based on largest time value
       const maxTime = competitors.reduce((max, comp) => {
@@ -438,32 +438,21 @@ function Results() {
       ? competitors.slice(0, 8)
       : [...competitors, ...Array(8 - competitors.length).fill({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" })];
     const colWidths = computeColumnWidthsCh(displayedCompetitors);
-    const totalCh = colWidths.totalCh;
-
-    // If no affiliation column, redistribute its space to name column
     const hasAffiliation = colWidths.col4 > 0;
-    const adjustedCol3 = hasAffiliation ? colWidths.col3 : colWidths.col3 + colWidths.col4;
 
-    const colPercentages = {
-      w1: (colWidths.col1 / totalCh) * 100 + '%',
-      w2: (colWidths.col2 / totalCh) * 100 + '%',
-      w3: (adjustedCol3 / totalCh) * 100 + '%',
-      w4: hasAffiliation ? (colWidths.col4 / totalCh) * 100 + '%' : '0%',
-      w5: (colWidths.col5 / totalCh) * 100 + '%'
-    };
-
-    // CSS Grid container - guarantees exactly 9 equal rows
+    // Use minmax(min-content, auto) to guarantee columns never shrink below content width
     const gridContainerStyle = {
       width: panelSize.panelWidth,
       height: panelSize.panelHeight,
       backgroundColor: '#000',
       border: '1px solid #555',
-      overflow: 'hidden',
+      overflowX: 'auto', // Allow horizontal scroll if content is too wide
+      overflowY: 'hidden',
       display: 'grid',
       gridTemplateRows: 'repeat(9, 1fr)', // 9 equal rows (1 header + 8 competitors)
       gridTemplateColumns: hasAffiliation
-        ? `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w4} ${colPercentages.w5}`
-        : `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w5}`, // Skip col4 if no affiliation
+        ? `minmax(min-content, auto) minmax(min-content, auto) 1fr minmax(${colWidths.col4}ch, auto) minmax(min-content, auto)`
+        : `minmax(min-content, auto) minmax(min-content, auto) 1fr minmax(min-content, auto)`,
       color: 'white',
       fontSize: panelFontSize + 'px'
     };
@@ -488,18 +477,18 @@ function Results() {
           {data.wind}
         </div>
 
-        {/* Competitor rows - each row is 5 cells */}
+        {/* Competitor rows */}
         {displayedCompetitors.map((comp, idx) => {
           const bgColor = idx % 2 === 0 ? '#191970' : '#4682B4';
           return (
             <React.Fragment key={idx}>
               <div style={{ ...cellStyle, backgroundColor: bgColor }}>{comp.place}</div>
-              <div style={{ ...cellStyle, backgroundColor: bgColor }}>{comp.id}</div>
+              <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor }}>{comp.id}</div>
               <div style={{ ...cellStyle, backgroundColor: bgColor }}>
                 {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
               </div>
-              <div style={{ ...cellStyle, backgroundColor: bgColor }}>{comp.affiliation}</div>
-              <div style={{ ...cellStyle, backgroundColor: bgColor, justifyContent: 'flex-end' }}>{comp.time}</div>
+              {hasAffiliation && <div style={{ ...cellStyle, backgroundColor: bgColor }}>{comp.affiliation}</div>}
+              <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor, textAlign: 'right' }}>{comp.time}</div>
             </React.Fragment>
           );
         })}
@@ -566,30 +555,19 @@ function Results() {
     }
 
     const colWidths = computeColumnWidthsCh(displayedCompetitors);
-    const totalCh = colWidths.totalCh;
-
-    // If no affiliation column, redistribute its space to name column
     const hasAffiliation = colWidths.col4 > 0;
-    const adjustedCol3 = hasAffiliation ? colWidths.col3 : colWidths.col3 + colWidths.col4;
 
-    const colPercentages = {
-      w1: (colWidths.col1 / totalCh) * 100 + '%',
-      w2: (colWidths.col2 / totalCh) * 100 + '%',
-      w3: (adjustedCol3 / totalCh) * 100 + '%',
-      w4: hasAffiliation ? (colWidths.col4 / totalCh) * 100 + '%' : '0%',
-      w5: (colWidths.col5 / totalCh) * 100 + '%'
-    };
-
-    // CSS Grid container for full-screen table - guarantees exactly 9 equal rows
+    // Use minmax(min-content, auto) to guarantee columns never shrink below content width
     const gridStyle = {
       ...containerStyle,
       display: 'grid',
       gridTemplateRows: 'repeat(9, 1fr)', // 9 equal rows (1 header + 8 competitors)
       gridTemplateColumns: hasAffiliation
-        ? `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w4} ${colPercentages.w5}`
-        : `${colPercentages.w1} ${colPercentages.w2} ${colPercentages.w3} ${colPercentages.w5}`, // Skip col4 if no affiliation
+        ? `minmax(min-content, auto) minmax(min-content, auto) 1fr minmax(${colWidths.col4}ch, auto) minmax(min-content, auto)`
+        : `minmax(min-content, auto) minmax(min-content, auto) 1fr minmax(min-content, auto)`,
       color: 'white',
-      fontSize: fullScreenFontSize + 'px'
+      fontSize: fullScreenFontSize + 'px',
+      overflowX: 'auto' // Allow horizontal scroll if content is too wide
     };
 
     const cellStyle = {
@@ -622,12 +600,12 @@ function Results() {
           return (
             <React.Fragment key={idx}>
               <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.place}</div>
-              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.id}</div>
+              <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.id}</div>
               <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>
                 {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
               </div>
               {hasAffiliation && <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.affiliation}</div>}
-              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle, justifyContent: 'flex-end' }}>{comp.time}</div>
+              <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor, borderBottom: borderStyle, textAlign: 'right' }}>{comp.time}</div>
             </React.Fragment>
           );
         })}
