@@ -197,7 +197,7 @@ func (a *App) watchDirectory() {
 				return
 			}
 			ext := strings.ToLower(filepath.Ext(event.Name))
-			if (ext == ".lif" || ext == ".res") &&
+			if (ext == ".lif" || ext == ".res" || ext == ".mf4") &&
 				(event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
 				log.Println("Detected change in:", event.Name)
 				time.Sleep(100 * time.Millisecond)
@@ -219,7 +219,7 @@ func (a *App) watchDirectory() {
 	}
 }
 
-// GetAllLIFData scans the monitored directory for all .lif and .res files,
+// GetAllLIFData scans the monitored directory for all .lif, .res, and .mf4 files,
 // parses each file fresh, and returns a slice of pointers to LifData.
 // It does not retain previous data.
 func (a *App) GetAllLIFData() ([]*LifData, error) {
@@ -234,7 +234,7 @@ func (a *App) GetAllLIFData() ([]*LifData, error) {
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			ext := strings.ToLower(filepath.Ext(entry.Name()))
-			if ext == ".lif" || ext == ".res" {
+			if ext == ".lif" || ext == ".res" || ext == ".mf4" {
 				filePath := filepath.Join(a.monitoredDir, entry.Name())
 				data, err := parseFile(filePath)
 				if err != nil {
@@ -571,7 +571,8 @@ func parseFile(path string) (*LifData, error) {
 	switch ext {
 	case ".lif":
 		return parseLifFile(path)
-	case ".res":
+	case ".res", ".mf4":
+		// Both .res and .mf4 use the same TAB-delimited format
 		return parseResFile(path)
 	default:
 		return nil, fmt.Errorf("unsupported file type: %s", ext)
