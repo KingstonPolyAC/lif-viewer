@@ -53,12 +53,13 @@ const expandedTableContainerStyle = {
 const controlPanelStyle = {
   position: 'absolute',
   width: '350px',
+  maxHeight: '70vh',
   bottom: '30px',
   right: '30px',
   zIndex: 3,
   display: 'flex',
   flexDirection: 'column',
-  gap: '10px'
+  gap: '2px'
 };
 
 // Table cell style: fixed layout, no wrapping, clipped overflow.
@@ -865,10 +866,10 @@ function App() {
         <div className="card-header">
           <h3 className="card-title m-0">Control Panel</h3>
         </div>
-        <div className="card-body">
+        <div className="card-body" style={{ overflowY: 'auto', maxHeight: '60vh' }}>
           {/* Directory Section */}
-          <div className="mb-3 pb-3 border-bottom">
-            <h5 className="mb-3">Link to Lynx Results</h5>
+          <div className="mb-1 pb-1 border-bottom">
+            <h5 className="mb-1">Link to Lynx Results</h5>
             <button className="btn btn-primary w-100" onClick={chooseDirectory}>
               Select Results Directory
             </button>
@@ -878,8 +879,8 @@ function App() {
           </div>
           
           {/* Screen Controls Section */}
-          <div className="mb-3 pb-3 border-bottom">
-            <h5 className="mb-3">Adjust View</h5>
+          <div className="mb-1 pb-1 border-bottom">
+            <h5 className="mb-1">Adjust View</h5>
             <div className="row g-2">
               <div className="col">
                 <button className="btn btn-primary w-100" onClick={() => setExpandedTable(!expandedTable)}>
@@ -896,8 +897,8 @@ function App() {
           </div>
           
           {/* Text Size Section */}
-          <div className="mb-3 pb-3 border-bottom">
-            <h5 className="mb-3">Adjust Text Size</h5>
+          <div className="mb-1 pb-1 border-bottom">
+            <h5 className="mb-1">Adjust Text Size</h5>
             <div className="row g-2">
               <div className="col">
                 <button className="btn btn-primary w-100" onClick={decrementTextMultiplier}>
@@ -913,8 +914,8 @@ function App() {
           </div>
 
           {/* Rotation Mode Section */}
-          <div className="mb-3 pb-3 border-bottom">
-            <h5 className="mb-3">Rotation Mode</h5>
+          <div className="mb-1 pb-1 border-bottom">
+            <h5 className="mb-1">Rotation Mode</h5>
             <div className="row g-2">
               <div className="col-4">
                 <button
@@ -949,7 +950,7 @@ function App() {
           </div>
           
           {/* Image/Screensaver Section */}
-          <div className="mb-3 pb-3 border-bottom">
+          <div className="mb-1 pb-1 border-bottom">
             <div className="row g-2">
               <div className="col">
                 <button className="btn btn-primary w-100" onClick={handleLinkImage}>
@@ -968,14 +969,14 @@ function App() {
           </div>
           
           {/* Multi LIF Display Section */}
-          <div className="mb-3">
+          <div className="mb-1">
             <Link to="/results">
               <button className="btn btn-primary w-100">Multi LIF Mode</button>
             </Link>
           </div>
         </div>
         <div className="card-footer text-muted">
-          Version 1.7.1 - Gordon Lester - web@kingstonandpoly.org
+          Version 2.0.0 - Gordon Lester - web@kingstonandpoly.org
         </div>
       </div>
 
