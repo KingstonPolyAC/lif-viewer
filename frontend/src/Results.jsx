@@ -473,11 +473,11 @@ function Results() {
 
     return (
       <div style={gridContainerStyle}>
-        {/* Header row - spans first 4 columns for event name */}
-        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', gridColumn: '1 / 5' }}>
+        {/* Header row - spans all columns except last for event name */}
+        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', gridColumn: hasAffiliation ? '1 / 5' : '1 / 4' }}>
           {data.eventName}
         </div>
-        {/* Header row - 5th column for wind */}
+        {/* Header row - last column for wind */}
         <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', justifyContent: 'flex-end' }}>
           {data.wind}
         </div>
