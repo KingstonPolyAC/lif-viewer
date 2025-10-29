@@ -208,9 +208,12 @@ function App() {
   // === DATA FETCHING ===
   const fetchLatestData = async () => {
     try {
-      // Use localhost:3000 for Wails desktop app, relative URL for web browser
-      const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
-      const response = await fetch(`${baseUrl}/latest-lif`);
+      // Desktop app: use local server. Web browser: use relative URLs
+      const hostname = window.location.hostname;
+      const isDesktop = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+      const baseUrl = isDesktop ? 'http://127.0.0.1:3000' : '';
+      const fullUrl = `${baseUrl}/latest-lif`;
+      const response = await fetch(fullUrl);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       setError('');
@@ -218,7 +221,7 @@ function App() {
       if (Object.keys(data).length > 0 && data.modifiedTime) {
         const newModTime = data.modifiedTime;
         const currentModTime = lastModifiedTimeRef.current;
-        
+
         if (newModTime !== currentModTime) {
           const modDate = new Date(newModTime * 1000);
           addDebugLog(`File modified: ${modDate.toLocaleTimeString()}`);
@@ -242,7 +245,9 @@ function App() {
   // === DISPLAY STATE SYNC ===
   const syncDisplayState = async (mode, text, imageBase64, rotation = null, lifData = null) => {
     try {
-      const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
+      const hostname = window.location.hostname;
+      const isDesktop = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+      const baseUrl = isDesktop ? 'http://127.0.0.1:3000' : '';
       const payload = {
         mode: mode,
         activeText: text || '',
@@ -446,7 +451,9 @@ function App() {
   // Fetch display state from server (for LAN viewers)
   const fetchDisplayState = async () => {
     try {
-      const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
+      const hostname = window.location.hostname;
+      const isDesktop = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+      const baseUrl = isDesktop ? 'http://127.0.0.1:3000' : '';
       const response = await fetch(`${baseUrl}/display-state`);
       if (!response.ok) return;
       const state = await response.json();
@@ -497,7 +504,8 @@ function App() {
 
     // Only fetch display state if we're NOT in the Wails desktop app
     // Desktop app is the source of truth and only posts display state
-    const isDesktopApp = window.location.protocol === 'wails:';
+    const hostname = window.location.hostname;
+    const isDesktopApp = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
 
     const interval = setInterval(() => {
       fetchLatestData();
@@ -528,6 +536,25 @@ function App() {
     fetchWebInterfaceInfo();
   }, []);
 
+  // Backend debug logs effect - fetch logs from Go backend
+  useEffect(() => {
+    const fetchBackendLogs = async () => {
+      try {
+        const logs = await GetDebugLogs();
+        if (logs && logs.length > 0) {
+          // Replace debug log with backend logs (they already have timestamps)
+          setDebugLog(logs.slice().reverse().slice(0, 20)); // Show last 20, reversed to show newest first
+        }
+      } catch (error) {
+        // Silently fail if backend not available yet
+      }
+    };
+
+    fetchBackendLogs(); // Initial fetch
+    const interval = setInterval(fetchBackendLogs, 1000); // Update every second
+    return () => clearInterval(interval);
+  }, []);
+
   // Reset rotation index when mode changes
   useEffect(() => {
     setRotationIndex(0);
@@ -536,7 +563,8 @@ function App() {
 
   // Sync rotation mode changes to server (desktop app only)
   useEffect(() => {
-    const isDesktopApp = window.location.protocol === 'wails:';
+    const hostname = window.location.hostname;
+    const isDesktopApp = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
     if (isDesktopApp && rotationMode) {
       syncDisplayState(displayMode, activeText, linkedImage, rotationMode);
       addDebugLog(`Syncing rotation mode to server: ${rotationMode}`);

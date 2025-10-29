@@ -4,7 +4,8 @@ import { GetAllLIFData, ChooseDirectory, EnterFullScreen, ExitFullScreen, GetWeb
 
 function Results() {
   const navigate = useNavigate();
-  const isDesktopApp = window.location.protocol === 'wails:';
+  const hostname = window.location.hostname;
+  const isDesktopApp = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
 
   // State for LIF data and display settings
   const [lifDataArray, setLifDataArray] = useState([]);
@@ -42,8 +43,10 @@ function Results() {
   useEffect(() => {
     async function fetchData() {
       try {
-        // Use localhost:3000 for Wails desktop app, relative URL for web browser
-        const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
+        // Desktop app: use local server. Web browser: use relative URLs
+        const hostname = window.location.hostname;
+        const isDesktop = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+        const baseUrl = isDesktop ? 'http://127.0.0.1:3000' : '';
         const response = await fetch(`${baseUrl}/all-lif`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
@@ -61,7 +64,9 @@ function Results() {
   useEffect(() => {
     async function fetchDisplayState() {
       try {
-        const baseUrl = window.location.protocol === 'wails:' ? 'http://localhost:3000' : '';
+        const hostname = window.location.hostname;
+        const isDesktop = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+        const baseUrl = isDesktop ? 'http://127.0.0.1:3000' : '';
         const response = await fetch(`${baseUrl}/display-state`);
         if (!response.ok) return;
         const state = await response.json();
@@ -644,13 +649,14 @@ function Results() {
           <div className="container-fluid">
             <div className="d-flex justify-content-around align-items-center flex-wrap">
 
+              {/* Back Button (always visible) */}
+              <div>
+                <button className="btn btn-primary mx-1" onClick={() => navigate("/")}>Back</button>
+              </div>
+
               {/* Desktop-only controls */}
               {isDesktopApp && (
                 <>
-                  {/* Back Button */}
-                  <div>
-                    <button className="btn btn-primary mx-1" onClick={() => navigate("/")}>Back</button>
-                  </div>
                   {/* Directory Selection */}
                   <div>
                     <button className="btn btn-primary mx-1" onClick={chooseDirectory}>Select Results Directory</button>

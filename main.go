@@ -788,31 +788,21 @@ func StartFiberServer(app *App) {
 		}
 		return c.JSON(data)
 	})
-	// API endpoint to get current display state.
+	// API endpoint to get display state.
 	fiberApp.Get("/display-state", func(c *fiber.Ctx) error {
 		state := app.GetDisplayState()
-		log.Printf("GET /display-state: mode=%s, activeText=%s (len=%d), rotationMode=%s",
-			state.Mode, state.ActiveText, len(state.ActiveText), state.RotationMode)
 		return c.JSON(state)
 	})
-	// API endpoint to set display state (for desktop app to sync with server).
+	// API endpoint to set display state.
 	fiberApp.Post("/display-state", func(c *fiber.Ctx) error {
 		var state DisplayState
 		if err := c.BodyParser(&state); err != nil {
 			return c.Status(400).JSON(map[string]interface{}{"error": err.Error()})
 		}
-		lifEvent := "none"
-		if state.CurrentLIF != nil {
-			lifEvent = state.CurrentLIF.EventName
-		}
-		log.Printf("POST /display-state: mode=%s, activeText=%s (len=%d), rotationMode=%s, currentLIF=%s",
-			state.Mode, state.ActiveText, len(state.ActiveText), state.RotationMode, lifEvent)
 		app.SetDisplayState(state.Mode, state.ActiveText, state.ImageBase64)
-		// Also update rotation mode if provided
 		if state.RotationMode != "" {
 			app.SetRotationMode(state.RotationMode)
 		}
-		// Update current LIF for full screen display
 		app.SetCurrentLIF(state.CurrentLIF)
 		return c.JSON(map[string]interface{}{"success": true})
 	})
@@ -821,22 +811,11 @@ func StartFiberServer(app *App) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Add cache control headers to prevent browser caching issues
-	fiberApp.Use("/", func(c *fiber.Ctx) error {
-		// For HTML files, disable caching to ensure latest version is always loaded
-		if c.Path() == "/" || c.Path() == "/index.html" {
-			c.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			c.Set("Pragma", "no-cache")
-			c.Set("Expires", "0")
-		}
-		return c.Next()
-	})
 	fiberApp.Use("/", filesystem.New(filesystem.Config{
 		Root:  http.FS(dist),
 		Index: "index.html",
 	}))
-	// Listen on all interfaces (0.0.0.0) to allow LAN access
-	if err := fiberApp.Listen("0.0.0.0:3000"); err != nil {
+	if err := fiberApp.Listen("127.0.0.1:3000"); err != nil {
 		log.Fatal(err)
 	}
 }

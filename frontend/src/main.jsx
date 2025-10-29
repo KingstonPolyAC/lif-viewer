@@ -7,13 +7,19 @@ import './style.css';
 
 // Component to detect environment and route accordingly
 function HomeRoute() {
-  const isDesktopApp = window.location.protocol === 'wails:';
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol;
+  const isDesktopApp = hostname === '' || hostname === 'wails.localhost' || protocol === 'wails:';
+
+  console.log('[ROUTING]', { hostname, protocol, isDesktopApp });
 
   // Desktop app: show control interface (AppWrapper)
   // Web browser: redirect to Results view (read-only multi-view)
   if (isDesktopApp) {
+    console.log('[ROUTING] Showing desktop AppWrapper');
     return <AppWrapper />;
   } else {
+    console.log('[ROUTING] Redirecting to /results');
     return <Navigate to="/results" replace />;
   }
 }
