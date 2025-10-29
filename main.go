@@ -815,7 +815,8 @@ func StartFiberServer(app *App) {
 		Root:  http.FS(dist),
 		Index: "index.html",
 	}))
-	if err := fiberApp.Listen("127.0.0.1:3000"); err != nil {
+	// Listen on all interfaces (0.0.0.0) to allow LAN access
+	if err := fiberApp.Listen("0.0.0.0:3000"); err != nil {
 		log.Fatal(err)
 	}
 }
