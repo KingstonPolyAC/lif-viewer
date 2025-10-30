@@ -412,11 +412,23 @@ func parseResFile(path string) (*LifData, error) {
 	eventName := ""
 	wind := ""
 
-	// Extract event name from filename in first field if available
+	// Extract event name from filename in first field if available (fallback)
 	if len(imageInfoRow) > 0 {
 		filename := strings.TrimSpace(imageInfoRow[0])
 		// Remove extension and use as event name
 		eventName = strings.TrimSuffix(filename, filepath.Ext(filename))
+	}
+
+	// Look for a line with "# Event:" to override the event name
+	for _, row := range records {
+		if len(row) > 0 {
+			firstField := strings.TrimSpace(row[0])
+			if strings.HasPrefix(firstField, "# Event:") {
+				// Extract text after "# Event:"
+				eventName = strings.TrimSpace(strings.TrimPrefix(firstField, "# Event:"))
+				break
+			}
+		}
 	}
 
 	// Extract wind information from the image info row (typically in second field)
