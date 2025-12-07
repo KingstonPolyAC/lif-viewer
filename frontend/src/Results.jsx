@@ -754,7 +754,7 @@ function Results() {
 
               {/* Version Info */}
               <div>
-                <small className="text-muted">Version 2.0.1 - Gordon Lester - web@kingstonandpoly.org</small>
+                <small className="text-muted">Version 2.0.2 - Gordon Lester - web@kingstonandpoly.org</small>
               </div>
             </div>
           </div>

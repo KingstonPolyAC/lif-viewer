@@ -245,12 +245,39 @@ func (a *App) GetAllLIFData() ([]*LifData, error) {
 			}
 		}
 	}
+	// Remove duplicates based on competitor data
+	// If two files have identical competitors (same athletes and performances), keep only the newer one
+	deduplicated := make([]*LifData, 0, len(results))
+	seen := make(map[string]*LifData)
+
+	for _, result := range results {
+		// Create a hash of competitor data (names and times)
+		hash := ""
+		for _, comp := range result.Competitors {
+			hash += comp.FirstName + "|" + comp.LastName + "|" + comp.Time + ";"
+		}
+
+		// If we've seen this exact competitor data before, keep the newer file
+		if existing, exists := seen[hash]; exists {
+			if result.ModifiedTime > existing.ModifiedTime {
+				seen[hash] = result
+			}
+		} else {
+			seen[hash] = result
+		}
+	}
+
+	// Collect deduplicated results
+	for _, result := range seen {
+		deduplicated = append(deduplicated, result)
+	}
+
 	// Sort results by ModifiedTime (oldest to newest)
 	// This ensures consistent ordering across all platforms
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].ModifiedTime < results[j].ModifiedTime
+	sort.Slice(deduplicated, func(i, j int) bool {
+		return deduplicated[i].ModifiedTime < deduplicated[j].ModifiedTime
 	})
-	return results, nil
+	return deduplicated, nil
 }
 
 // getDecoder now uses the chardet package to determine the file's encoding.

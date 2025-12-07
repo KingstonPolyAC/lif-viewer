@@ -856,7 +856,7 @@ function App() {
             </tbody>
           </table>
           <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Press Esc to exit expanded table mode.</div>
-          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 2.0.1 - Gordon Lester - web@kingstonandpoly.org</div>
+          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 2.0.2 - Gordon Lester - web@kingstonandpoly.org</div>
         </div>
       );
     } else {
@@ -1004,7 +1004,7 @@ function App() {
           </div>
         </div>
         <div className="card-footer text-muted">
-          Version 2.0.1 - Gordon Lester - web@kingstonandpoly.org
+          Version 2.0.2 - Gordon Lester - web@kingstonandpoly.org
         </div>
       </div>
 
