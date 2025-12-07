@@ -245,6 +245,11 @@ func (a *App) GetAllLIFData() ([]*LifData, error) {
 			}
 		}
 	}
+	// Sort results by ModifiedTime (oldest to newest)
+	// This ensures consistent ordering across all platforms
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].ModifiedTime < results[j].ModifiedTime
+	})
 	return results, nil
 }
 

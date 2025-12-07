@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GetAllLIFData, ChooseDirectory, EnterFullScreen, ExitFullScreen, GetWebInterfaceInfo } from '../wailsjs/go/main/App';
 
@@ -36,8 +36,12 @@ function Results() {
   const [fullScreenRotateIndex, setFullScreenRotateIndex] = useState(0);
 
   // Ref to measure actual control panel height
-  const controlPanelRef = React.useRef(null);
+  const controlPanelRef = useRef(null);
   const [controlPanelHeight, setControlPanelHeight] = useState(120);
+
+  // Ref to track previous lifDataArray length
+  const prevArrayLengthRef = useRef(0);
+  const lifDataArrayRef = useRef(lifDataArray);
 
   // Fetch all LIF data every 3 seconds using HTTP endpoint (works for both local and remote access)
   useEffect(() => {
@@ -182,7 +186,7 @@ function Results() {
   const gridCount = useMemo(() => (layout === '2x2' ? 4 : 6), [layout]);
 
   // Determine displayed LIFs based on mode:
-  // - In Rotate mode, cycle groups of gridCount items every 5 seconds.
+  // - In Rotate mode, paginate through events (newest to oldest)
   // - In Latest mode, show the most recently changed files ordered newest-to-oldest.
   const displayedLIFs = useMemo(() => {
     if (lifDataArray.length <= gridCount) {
@@ -193,11 +197,24 @@ function Results() {
       return result;
     } else {
       if (displayMode === 'rotate') {
-        const rotated = [];
+        // Rotate mode: paginate through events
+        // Array is sorted oldest→newest: [A,B,C,D,E,F]
+        // Reverse to newest→oldest for pagination: [F,E,D,C,B,A]
+        // Page 0: [F,E,D,C], Page 1: [B,A], etc. (no wrapping, fill with empty)
+        const reversed = [...lifDataArray].reverse();
+        const totalPages = Math.ceil(reversed.length / gridCount);
+        const currentPage = rotateIndex % totalPages;
+        const startIdx = currentPage * gridCount;
+        const page = [];
         for (let i = 0; i < gridCount; i++) {
-          rotated.push(lifDataArray[(rotateIndex + i) % lifDataArray.length]);
+          const idx = startIdx + i;
+          if (idx < reversed.length) {
+            page.push(reversed[idx]);
+          } else {
+            page.push({ eventName: "", wind: "", competitors: [] });
+          }
         }
-        return rotated;
+        return page;
       } else {
         // Latest mode: take the newest gridCount items, arranged left-to-right newest to oldest
         const latest = lifDataArray.length >= gridCount
@@ -211,15 +228,32 @@ function Results() {
     }
   }, [lifDataArray, gridCount, displayMode, rotateIndex]);
 
-  // In Rotate mode, cycle through all available LIFs every 5 seconds.
+  // Keep ref updated with latest lifDataArray
+  useEffect(() => {
+    lifDataArrayRef.current = lifDataArray;
+  }, [lifDataArray]);
+
+  // When array length changes (new event added), reset to page 0
+  // New events wait for pagination cycle to restart
+  useEffect(() => {
+    if (prevArrayLengthRef.current !== 0 && prevArrayLengthRef.current !== lifDataArray.length) {
+      setRotateIndex(0);
+    }
+    prevArrayLengthRef.current = lifDataArray.length;
+  }, [lifDataArray.length]);
+
+  // In Rotate mode, advance to next page every 5 seconds
   useEffect(() => {
     if (displayMode === 'rotate' && lifDataArray.length > gridCount) {
       const intervalId = setInterval(() => {
-        setRotateIndex(prev => (prev + gridCount) % lifDataArray.length);
+        setRotateIndex(prev => prev + 1);
       }, 5000);
       return () => clearInterval(intervalId);
+    } else {
+      // Reset to 0 when not rotating
+      setRotateIndex(0);
     }
-  }, [displayMode, lifDataArray, gridCount]);
+  }, [displayMode, gridCount, lifDataArray.length]);
 
   // Track window size for responsive layout
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -487,7 +521,7 @@ function Results() {
           const bgColor = idx % 2 === 0 ? '#191970' : '#4682B4';
           return (
             <React.Fragment key={idx}>
-              <div style={{ ...cellStyle, backgroundColor: bgColor }}>{comp.place}</div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor, fontWeight: 'bold', borderRight: '1px solid #666' }}>{comp.place}</div>
               <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor }}>{comp.id}</div>
               <div style={{ ...cellStyle, backgroundColor: bgColor }}>
                 {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
@@ -604,7 +638,7 @@ function Results() {
 
           return (
             <React.Fragment key={idx}>
-              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.place}</div>
+              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle, fontWeight: 'bold', borderRight: '1px solid #666' }}>{comp.place}</div>
               <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.id}</div>
               <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>
                 {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
@@ -626,9 +660,16 @@ function Results() {
     marginBottom: '100px'
   };
 
+  // Calculate page info for display
+  const totalPages = lifDataArray.length > gridCount ? Math.ceil(lifDataArray.length / gridCount) : 1;
+  const currentPage = lifDataArray.length > gridCount ? (rotateIndex % totalPages) + 1 : 1;
+  const pageInfo = displayMode === 'rotate' && lifDataArray.length > gridCount
+    ? ` - Page ${currentPage} of ${totalPages}`
+    : '';
+
   return (
     <div style={{ padding: viewMode === 'fullscreen' ? '0' : '20px', backgroundColor: '#222', minHeight: '100vh', color: 'white', position: 'relative', overflow: 'hidden' }}>
-      {viewMode === 'multi' && <h2 style={{ textAlign: 'center' }}>Results</h2>}
+      {viewMode === 'multi' && <h2 style={{ textAlign: 'center' }}>Results{pageInfo}</h2>}
 
       {/* Multi-grid view */}
       {viewMode === 'multi' && (
