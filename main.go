@@ -855,10 +855,20 @@ func StartFiberServer(app *App) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Serve static files from embedded assets
 	fiberApp.Use("/", filesystem.New(filesystem.Config{
 		Root:  http.FS(dist),
 		Index: "index.html",
 	}))
+	// SPA fallback: serve index.html for client-side routes (e.g. /athlete, /results)
+	indexHTML, err := fs.ReadFile(assets, "frontend/dist/index.html")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fiberApp.Get("/*", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/html")
+		return c.Send(indexHTML)
+	})
 	// Listen on all interfaces (0.0.0.0) to allow LAN access
 	if err := fiberApp.Listen("0.0.0.0:3000"); err != nil {
 		log.Fatal(err)
