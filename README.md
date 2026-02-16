@@ -7,6 +7,8 @@ A results viewing and display software package for FinishLynx and TimeTronics Ph
 - Keeps the operator in control, only displaying once a result is saved to ensure positive validation of results prior to display. Multiple saves are supported, enabling early display of athletes in distance races, or display once the top 3 athletes have performances assigned.
 
 **Download from** - [www.polyfield.co.uk](https://www.polyfield.co.uk)
+**PDF Manual:** - [docs/PolyField-Track-Manual.pdf](docs/PolyField-Track-Manual.pdf)
+
 
 ## How It Works
 
