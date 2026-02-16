@@ -5,7 +5,9 @@ function AthleteBoard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBib, setSelectedBib] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [focusedEvent, setFocusedEvent] = useState(null); // index of full-screened event card
   const searchRef = useRef(null);
+  const inputRef = useRef(null);
 
   // Fetch all LIF data every 3 seconds (same pattern as Results.jsx)
   useEffect(() => {
@@ -93,17 +95,28 @@ function AthleteBoard() {
   const handleSearchChange = (e) => {
     setSearchTerm(e.target.value);
     setSelectedBib(null);
+    setFocusedEvent(null);
     setDropdownOpen(true);
   };
 
   const handleSelect = (bib) => {
     setSelectedBib(bib);
+    setFocusedEvent(null);
     setDropdownOpen(false);
   };
 
   const handleBackToResults = () => {
     setSelectedBib(null);
+    setFocusedEvent(null);
     setDropdownOpen(true);
+  };
+
+  const handleReset = () => {
+    setSearchTerm('');
+    setSelectedBib(null);
+    setFocusedEvent(null);
+    setDropdownOpen(false);
+    if (inputRef.current) inputRef.current.focus();
   };
 
   const ordinal = (n) => {
@@ -115,7 +128,6 @@ function AthleteBoard() {
   };
 
   // Accessible color palette
-  // All colors verified for WCAG AA contrast on their backgrounds
   const colors = {
     bg: '#111',
     brandBg: '#003366',
@@ -124,20 +136,128 @@ function AthleteBoard() {
     cardBg: '#1a1a40',
     dropdownBg: '#1c1c3a',
     dropdownHover: '#2a2a50',
-    border: '#5a9fd4',       // lighter steel blue for better visibility
+    border: '#5a9fd4',
     textPrimary: '#ffffff',
-    textSecondary: '#c8c8c8', // light gray, 8.5:1 on #111
-    textMuted: '#a0a0a0',     // medium gray, 5.5:1 on #111
+    textSecondary: '#c8c8c8',
+    textMuted: '#a0a0a0',
     gold: '#FFD700',
-    wind: '#b0b0b0',          // 7:1 on card background
-    eventLabel: '#7eb8e0',    // accessible light blue, 5.5:1 on #1a1a40
+    wind: '#b0b0b0',
+    eventLabel: '#7eb8e0',
     link: '#7eb8e0',
+    resetBg: '#333',
+    resetHover: '#444',
+    backBtnBg: '#2a2a50',
+    backBtnHover: '#3a3a60',
   };
 
   const hasSearch = searchTerm.trim().length > 0;
   const showDropdown = dropdownOpen && hasSearch && searchResults.length > 1 && !selectedBib;
   const showPhotoBoard = hasSearch && selectedAthlete;
   const noResults = hasSearch && searchResults.length === 0;
+
+  const buttonBase = {
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+  };
+
+  // Full-screen single event view
+  if (focusedEvent !== null && selectedAthlete && selectedAthlete.events[focusedEvent]) {
+    const evt = selectedAthlete.events[focusedEvent];
+    return (
+      <div style={{
+        background: colors.bg,
+        width: '100vw',
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: 200,
+        color: colors.textPrimary,
+      }}>
+        {/* Back button */}
+        <button
+          onClick={() => setFocusedEvent(null)}
+          style={{
+            ...buttonBase,
+            position: 'absolute',
+            top: '24px',
+            left: '24px',
+            background: colors.backBtnBg,
+            padding: '12px 24px',
+            fontSize: 'clamp(1rem, 2vw, 1.3rem)',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = colors.backBtnHover}
+          onMouseLeave={(e) => e.currentTarget.style.background = colors.backBtnBg}
+        >
+          &#8592; Back
+        </button>
+
+        {/* Athlete name */}
+        <div style={{
+          fontSize: 'clamp(2rem, 5vw, 4rem)',
+          fontWeight: 'bold',
+          textTransform: 'uppercase',
+          letterSpacing: '4px',
+          marginBottom: '8px',
+        }}>
+          {selectedAthlete.firstName} {selectedAthlete.lastName}
+        </div>
+        <div style={{
+          fontSize: 'clamp(1rem, 2vw, 1.5rem)',
+          color: colors.textSecondary,
+          marginBottom: 'clamp(24px, 5vh, 60px)',
+        }}>
+          Bib #{selectedAthlete.bib}
+          {selectedAthlete.affiliation ? ` — ${selectedAthlete.affiliation}` : ''}
+        </div>
+
+        {/* Event details */}
+        <div style={{
+          fontSize: 'clamp(1.2rem, 3vw, 2rem)',
+          color: colors.eventLabel,
+          fontWeight: 'bold',
+          textTransform: 'uppercase',
+          letterSpacing: '2px',
+          marginBottom: 'clamp(16px, 3vh, 40px)',
+        }}>
+          {evt.eventName}
+        </div>
+        <div style={{
+          fontSize: 'clamp(5rem, 12vw, 12rem)',
+          fontWeight: 'bold',
+          color: colors.gold,
+          lineHeight: 1,
+        }}>
+          {ordinal(evt.place)}
+        </div>
+        <div style={{
+          fontSize: 'clamp(4rem, 10vw, 10rem)',
+          fontWeight: 'bold',
+          color: colors.textPrimary,
+          lineHeight: 1,
+          margin: 'clamp(8px, 2vh, 24px) 0',
+        }}>
+          {evt.time}
+        </div>
+        {evt.wind && (
+          <div style={{
+            fontSize: 'clamp(1.2rem, 3vw, 2rem)',
+            color: colors.wind,
+            marginTop: 'clamp(8px, 1vh, 16px)',
+          }}>
+            Wind: {evt.wind}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: colors.bg, minHeight: '100vh', color: colors.textPrimary }}>
@@ -160,9 +280,11 @@ function AthleteBoard() {
         padding: '12px 24px',
         display: 'flex',
         justifyContent: 'center',
+        gap: '12px',
       }}>
         <div ref={searchRef} style={{ position: 'relative', width: '100%', maxWidth: '600px' }}>
           <input
+            ref={inputRef}
             type="text"
             style={{
               fontSize: 'clamp(1rem, 2.5vw, 1.4rem)',
@@ -230,6 +352,24 @@ function AthleteBoard() {
             </div>
           )}
         </div>
+
+        {/* Reset button */}
+        {hasSearch && (
+          <button
+            onClick={handleReset}
+            style={{
+              ...buttonBase,
+              background: colors.resetBg,
+              padding: '10px 20px',
+              fontSize: 'clamp(1rem, 2.5vw, 1.4rem)',
+              whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = colors.resetHover}
+            onMouseLeave={(e) => e.currentTarget.style.background = colors.resetBg}
+          >
+            Reset
+          </button>
+        )}
       </div>
 
       {/* Prompt text when no search */}
@@ -297,57 +437,87 @@ function AthleteBoard() {
             padding: 'clamp(8px, 2vw, 24px)',
             flex: 1,
           }}>
-            {selectedAthlete.events.map((evt, idx) => (
-              <div key={idx} style={{
-                background: colors.cardBg,
-                borderRadius: '16px',
-                padding: 'clamp(16px, 3vw, 40px) clamp(20px, 3vw, 48px)',
-                textAlign: 'center',
-                flex: selectedAthlete.events.length <= 2 ? '1 1 400px' : '1 1 300px',
-                maxWidth: selectedAthlete.events.length === 1 ? '800px' : '600px',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                minHeight: 'clamp(180px, 25vh, 350px)',
-              }}>
-                <div style={{
-                  fontSize: 'clamp(1rem, 2.5vw, 1.5rem)',
-                  color: colors.eventLabel,
-                  fontWeight: 'bold',
-                  marginBottom: 'clamp(8px, 1.5vh, 20px)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px',
-                }}>
-                  {evt.eventName}
-                </div>
-                <div style={{
-                  fontSize: 'clamp(2.5rem, 6vw, 5rem)',
-                  fontWeight: 'bold',
-                  color: colors.gold,
-                  lineHeight: 1.1,
-                }}>
-                  {ordinal(evt.place)}
-                </div>
-                <div style={{
-                  fontSize: 'clamp(2rem, 5vw, 4rem)',
-                  fontWeight: 'bold',
-                  color: colors.textPrimary,
-                  margin: 'clamp(4px, 1vh, 12px) 0',
-                  lineHeight: 1.1,
-                }}>
-                  {evt.time}
-                </div>
-                {evt.wind && (
+            {selectedAthlete.events.map((evt, idx) => {
+              const isClickable = selectedAthlete.events.length > 1;
+              return (
+                <div
+                  key={idx}
+                  onClick={isClickable ? () => setFocusedEvent(idx) : undefined}
+                  style={{
+                    background: colors.cardBg,
+                    borderRadius: '16px',
+                    padding: 'clamp(16px, 3vw, 40px) clamp(20px, 3vw, 48px)',
+                    textAlign: 'center',
+                    flex: selectedAthlete.events.length <= 2 ? '1 1 400px' : '1 1 300px',
+                    maxWidth: selectedAthlete.events.length === 1 ? '800px' : '600px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    minHeight: 'clamp(180px, 25vh, 350px)',
+                    cursor: isClickable ? 'pointer' : 'default',
+                    transition: 'transform 0.15s, box-shadow 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isClickable) {
+                      e.currentTarget.style.transform = 'scale(1.03)';
+                      e.currentTarget.style.boxShadow = `0 0 20px ${colors.border}44`;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (isClickable) {
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }
+                  }}
+                >
                   <div style={{
-                    fontSize: 'clamp(1rem, 2vw, 1.4rem)',
-                    color: colors.wind,
-                    marginTop: 'clamp(4px, 0.5vh, 8px)',
+                    fontSize: 'clamp(1rem, 2.5vw, 1.5rem)',
+                    color: colors.eventLabel,
+                    fontWeight: 'bold',
+                    marginBottom: 'clamp(8px, 1.5vh, 20px)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
                   }}>
-                    Wind: {evt.wind}
+                    {evt.eventName}
                   </div>
-                )}
-              </div>
-            ))}
+                  <div style={{
+                    fontSize: 'clamp(2.5rem, 6vw, 5rem)',
+                    fontWeight: 'bold',
+                    color: colors.gold,
+                    lineHeight: 1.1,
+                  }}>
+                    {ordinal(evt.place)}
+                  </div>
+                  <div style={{
+                    fontSize: 'clamp(2rem, 5vw, 4rem)',
+                    fontWeight: 'bold',
+                    color: colors.textPrimary,
+                    margin: 'clamp(4px, 1vh, 12px) 0',
+                    lineHeight: 1.1,
+                  }}>
+                    {evt.time}
+                  </div>
+                  {evt.wind && (
+                    <div style={{
+                      fontSize: 'clamp(1rem, 2vw, 1.4rem)',
+                      color: colors.wind,
+                      marginTop: 'clamp(4px, 0.5vh, 8px)',
+                    }}>
+                      Wind: {evt.wind}
+                    </div>
+                  )}
+                  {isClickable && (
+                    <div style={{
+                      fontSize: 'clamp(0.7rem, 1.2vw, 0.9rem)',
+                      color: colors.textMuted,
+                      marginTop: 'clamp(8px, 1vh, 16px)',
+                    }}>
+                      Tap to enlarge
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Back link if multiple matches */}

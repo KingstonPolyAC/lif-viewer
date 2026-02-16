@@ -1,29 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChooseDirectory, EnterFullScreen, ExitFullScreen, GetWebInterfaceInfo } from "../wailsjs/go/main/App";
-import welcomeImage from './welcome.png';
+import polyfieldLogo from './polyfield-logo.png';
 
 // Fixed dimensions for the default table container.
 const DEFAULT_TABLE_HEIGHT = 192; // in pixels
 const DEFAULT_TABLE_WIDTH = 384;  // in pixels
 
-// Main container with diagonal background.
+// Main container with navy themed background.
 const containerStyle = {
   width: '100vw',
   height: '100vh',
   position: 'relative',
-  background: 'linear-gradient(135deg, navy 0%, navy 40%, white 40%, white 60%, black 60%, black 100%)',
+  background: 'linear-gradient(160deg, #001a33 0%, #003366 40%, #002244 100%)',
   overflow: 'hidden',
-};
-
-// Background image.
-const backgroundImageStyle = {
-  position: 'absolute',
-  top: '50px',
-  right: '50px',
-  height: '150px',
-  width: '150px',
-  zIndex: 0,
 };
 
 // Table container styles.
@@ -49,17 +39,20 @@ const expandedTableContainerStyle = {
   overflow: 'hidden',
 };
 
-// Control Panel container in bottom right.
+// Control Panel container - right half of screen.
 const controlPanelStyle = {
   position: 'absolute',
-  width: '350px',
-  maxHeight: '70vh',
-  bottom: '30px',
-  right: '30px',
+  top: '0',
+  right: '0',
+  width: '50%',
+  height: '100vh',
   zIndex: 3,
   display: 'flex',
   flexDirection: 'column',
-  gap: '2px'
+  borderRadius: '0',
+  border: 'none',
+  backgroundColor: '#0d1b2a',
+  color: '#e0e0e0',
 };
 
 // Table cell style: fixed layout, no wrapping, clipped overflow.
@@ -758,7 +751,7 @@ function App() {
       textAlign: 'center',
       padding: '10px'
     }}>
-      {!selectedDir ? "Link Your LIF Result Directory To Start" : "Monitoring directory for new LIF files or changes"}
+      {!selectedDir ? "Link Your Results Directory To Start" : "Monitoring directory for new results"}
     </div>
   );
 
@@ -856,7 +849,7 @@ function App() {
             </tbody>
           </table>
           <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Press Esc to exit expanded table mode.</div>
-          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 2.0.2 - Gordon Lester - web@kingstonandpoly.org</div>
+          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 3.0.0 - Gordon Lester - support@polyfield.co.uk</div>
         </div>
       );
     } else {
@@ -872,7 +865,7 @@ function App() {
           textAlign: 'center',
           padding: '10px'
         }}>
-          {!selectedDir ? "Link Your LIF Result Directory To Start" : "Monitoring directory for new LIF files or changes"}
+          {!selectedDir ? "Link Your Results Directory To Start" : "Monitoring directory for new results"}
         </div>
       );
     }
@@ -880,188 +873,242 @@ function App() {
 
   return (
     <div style={containerStyle}>
-      {/* Background image */}
-      <img src={welcomeImage} alt="Welcome" style={backgroundImageStyle} />
+      {/* Logo on the left side below the preview */}
+      <img src={polyfieldLogo} alt="PolyField" style={{
+        position: 'absolute',
+        bottom: '20px',
+        left: '20px',
+        height: '80px',
+        width: '80px',
+        zIndex: 1,
+        opacity: 0.9,
+      }} />
 
-      {/* Top Left Display */}
+      {/* Top Left Display - UNCHANGED POSITION */}
       {renderTopLeftDisplay()}
 
       {/* Expanded Table Display */}
       {renderExpandedDisplay()}
 
-      {/* Control Panel */}
-      <div className="card shadow mb-4" style={controlPanelStyle}>
-        <div className="card-header">
-          <h3 className="card-title m-0">Control Panel</h3>
-        </div>
-        <div className="card-body" style={{ overflowY: 'auto', maxHeight: '60vh' }}>
-          {/* Directory Section */}
-          <div className="mb-1 pb-1 border-bottom">
-            <h5 className="mb-1">Link to Lynx Results</h5>
-            <button className="btn btn-primary w-100" onClick={chooseDirectory}>
-              Select Results Directory
-            </button>
-            {error && <p className="mt-2 text-danger">{error}</p>}
-            {selectedDir && <p className="mt-2 text-muted">{selectedDir}</p>}
-            {selectedDir && <p className="mt-2 text-muted">{webInterfaceInfo}</p>}
-          </div>
-          
-          {/* Screen Controls Section */}
-          <div className="mb-1 pb-1 border-bottom">
-            <h5 className="mb-1">Adjust View</h5>
-            <div className="row g-2">
-              <div className="col">
-                <button className="btn btn-primary w-100" onClick={() => setExpandedTable(!expandedTable)}>
-                  Full Screen Table
-                </button>
-              </div>
-              <div className="col">
-                <button className="btn btn-primary w-100" onClick={toggleAppFullScreen}>
-                  Full Screen App
-                </button>
-              </div>
-            </div>
-            <p className="mt-2 text-muted">Tip: Press Esc to exit full screen modes.</p>
-          </div>
-          
-          {/* Text Size Section */}
-          <div className="mb-1 pb-1 border-bottom">
-            <h5 className="mb-1">Adjust Text Size</h5>
-            <div className="row g-2">
-              <div className="col">
-                <button className="btn btn-primary w-100" onClick={decrementTextMultiplier}>
-                  Smaller
-                </button>
-              </div>
-              <div className="col">
-                <button className="btn btn-primary w-100" onClick={incrementTextMultiplier}>
-                  Larger
-                </button>
-              </div>
-            </div>
-          </div>
+      {/* Control Panel - right half of screen */}
+      <div style={controlPanelStyle}>
 
-          {/* Rotation Mode Section */}
-          <div className="mb-1 pb-1 border-bottom">
-            <h5 className="mb-1">Rotation Mode</h5>
-            <div className="row g-2">
-              <div className="col-4">
-                <button
-                  className={`btn w-100 ${rotationMode === 'scroll' ? 'btn-success' : 'btn-secondary'}`}
-                  onClick={() => setRotationMode('scroll')}
-                >
-                  Scroll
-                </button>
-              </div>
-              <div className="col-4">
-                <button
-                  className={`btn w-100 ${rotationMode === 'page' ? 'btn-success' : 'btn-secondary'}`}
-                  onClick={() => setRotationMode('page')}
-                >
-                  Page
-                </button>
-              </div>
-              <div className="col-4">
-                <button
-                  className={`btn w-100 ${rotationMode === 'scrollAll' ? 'btn-success' : 'btn-secondary'}`}
-                  onClick={() => setRotationMode('scrollAll')}
-                >
-                  Scroll All
-                </button>
-              </div>
-            </div>
-            <p className="mt-2 text-muted" style={{ fontSize: '0.85rem' }}>
-              {rotationMode === 'scroll' && 'Top 3 locked, remaining scroll'}
-              {rotationMode === 'page' && 'Pages: 1-8, 9-16, etc.'}
-              {rotationMode === 'scrollAll' && 'All positions scroll'}
-            </p>
-          </div>
-          
-          {/* Image/Screensaver Section */}
-          <div className="mb-1 pb-1 border-bottom">
-            <div className="row g-2">
-              <div className="col">
-                <button className="btn btn-primary w-100" onClick={handleLinkImage}>
-                  Link Image
-                </button>
-              </div>
-              <div className="col">
-                <button className="btn btn-primary w-100" onClick={showScreensaver}>
-                  Screensaver
-                </button>
-              </div>
-            </div>
-            <p className="mt-2 text-muted">
-              {linkedImage ? "Image linked." : "No image linked yet."}
-            </p>
-          </div>
-          
-          {/* Multi LIF Display Section */}
-          <div className="mb-1">
-            <Link to="/results">
-              <button className="btn btn-primary w-100">Multi LIF Mode</button>
-            </Link>
-          </div>
-        </div>
-        <div className="card-footer text-muted">
-          Version 2.0.2 - Gordon Lester - web@kingstonandpoly.org
-        </div>
-      </div>
-
-      {/* Text Input Bar - Hidden in expanded table mode */}
-      {!expandedTable && (
+        {/* Header with logo, title, and directory button */}
         <div style={{
-          position: 'fixed',
-          bottom: '10px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          backgroundColor: '#000',
-          color: 'white',
-          padding: '10px',
-          zIndex: 11,
+          backgroundColor: '#003366',
+          color: '#ffffff',
+          padding: '12px 20px',
           display: 'flex',
-          gap: '10px',
-          alignItems: 'flex-start'
+          alignItems: 'center',
+          gap: '12px',
         }}>
-        <textarea
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          placeholder="Enter display text... (Use line breaks for multiple lines)"
-          rows={3}
-          style={{
-            padding: '10px',
-            fontSize: '1rem',
-            backgroundColor: '#111',
-            color: 'white',
-            border: '1px solid white',
-            borderRadius: '4px',
-            width: '400px',
-            resize: 'vertical',
-            fontFamily: 'Arial, sans-serif'
-          }}
-        />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <img src={polyfieldLogo} alt="PF" style={{ height: '36px', width: '36px' }} />
+          <h4 style={{ margin: 0, flex: 1, fontWeight: 'bold', letterSpacing: '0.5px' }}>PolyField - Track</h4>
           <button
-            className="btn btn-primary"
-            onClick={showTextDisplay}
-          >
-            Display Text
-          </button>
-          <button
-            className="btn btn-secondary"
-            onClick={clearTextDisplay}
+            onClick={chooseDirectory}
             style={{
+              backgroundColor: selectedDir ? '#1b5e20' : '#e65100',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '8px 16px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
               fontSize: '0.9rem',
-              padding: '5px 10px',
-              backgroundColor: '#666',
-              border: '1px solid white'
             }}
           >
-            Clear Text
+            {selectedDir ? 'Change Folder' : 'Select Results Folder'}
           </button>
         </div>
+
+        {/* Directory info bar */}
+        {selectedDir && (
+          <div style={{
+            backgroundColor: '#0a1628',
+            padding: '10px 20px',
+            borderBottom: '1px solid #1a3050',
+          }}>
+            <div style={{ fontSize: '0.95rem', color: '#e0e0e0', fontWeight: 'bold', marginBottom: '4px' }}>{selectedDir}</div>
+            {webInterfaceInfo && <div style={{ fontSize: '1rem', color: '#64b5f6', fontWeight: 'bold' }}>{webInterfaceInfo}</div>}
+          </div>
+        )}
+        {error && (
+          <div style={{
+            backgroundColor: '#3d0000',
+            padding: '6px 20px',
+            fontSize: '0.85rem',
+            color: '#ff8a80',
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Scrollable body */}
+        <div style={{ overflowY: 'auto', flex: 1, padding: '16px 20px' }}>
+
+          {/* 1. Text & Screensaver - grouped, most frequently used */}
+          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
+            <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Display Text &amp; Screensaver</h6>
+            <p style={{ color: '#a0b4c8', fontSize: '0.8rem', marginBottom: '8px' }}>
+              Show a message or screensaver on all connected screens. Cleared automatically when a new race finishes.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder="Enter text to display on all screens..."
+                rows={4}
+                style={{
+                  flex: 1,
+                  padding: '10px 12px',
+                  fontSize: '0.95rem',
+                  backgroundColor: '#0a1628',
+                  color: '#e0e0e0',
+                  border: '1px solid #2a4a6b',
+                  borderRadius: '6px',
+                  resize: 'vertical',
+                  fontFamily: 'Arial, sans-serif',
+                }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <button onClick={showTextDisplay} style={{
+                  backgroundColor: '#1565c0', color: '#ffffff', border: 'none', borderRadius: '6px',
+                  padding: '10px 16px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
+                }}>Display</button>
+                <button onClick={clearTextDisplay} style={{
+                  backgroundColor: 'transparent', color: '#a0b4c8', border: '1px solid #2a4a6b', borderRadius: '6px',
+                  padding: '6px 16px', cursor: 'pointer', fontSize: '0.85rem',
+                }}>Clear</button>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button onClick={handleLinkImage} style={{
+                backgroundColor: 'transparent', color: '#e0e0e0', border: '1px solid #2a4a6b', borderRadius: '6px',
+                padding: '6px 14px', cursor: 'pointer', fontSize: '0.85rem',
+              }}>
+                {linkedImage ? 'Change Image' : 'Link Image'}
+              </button>
+              <button onClick={showScreensaver} disabled={!linkedImage} style={{
+                backgroundColor: linkedImage ? '#1565c0' : '#1a3050', color: linkedImage ? '#ffffff' : '#5a7a9a',
+                border: 'none', borderRadius: '6px', padding: '6px 14px', cursor: linkedImage ? 'pointer' : 'default',
+                fontSize: '0.85rem',
+              }}>Screensaver</button>
+              <div style={{ flex: 1 }} />
+              <button onClick={restoreLastLIF} disabled={lifDataHistory.length === 0} style={{
+                backgroundColor: 'transparent',
+                color: lifDataHistory.length > 0 ? '#e0e0e0' : '#5a7a9a',
+                border: `1px solid ${lifDataHistory.length > 0 ? '#2a4a6b' : '#1a3050'}`,
+                borderRadius: '6px', padding: '6px 14px', cursor: lifDataHistory.length > 0 ? 'pointer' : 'default',
+                fontSize: '0.85rem',
+              }}>Restore Last Result ({lifDataHistory.length})</button>
+            </div>
+          </div>
+
+          {/* 2. Full Screen Controls */}
+          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
+            <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Full Screen</h6>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ flex: 1 }}>
+                <button onClick={() => setExpandedTable(!expandedTable)} style={{
+                  width: '100%', backgroundColor: expandedTable ? '#2e7d32' : '#1565c0', color: '#ffffff',
+                  border: 'none', borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
+                }}>
+                  {expandedTable ? 'Exit Table View' : 'Full Screen Table'}
+                </button>
+                <p style={{ color: '#a0b4c8', fontSize: '0.78rem', marginTop: '4px', marginBottom: 0 }}>Maximise results on this display</p>
+              </div>
+              <div style={{ flex: 1 }}>
+                <button onClick={toggleAppFullScreen} style={{
+                  width: '100%', backgroundColor: appFullScreen ? '#2e7d32' : '#1565c0', color: '#ffffff',
+                  border: 'none', borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
+                }}>
+                  {appFullScreen ? 'Exit Full Screen' : 'Full Screen App'}
+                </button>
+                <p style={{ color: '#a0b4c8', fontSize: '0.78rem', marginTop: '4px', marginBottom: 0 }}>Maximise the entire window</p>
+              </div>
+            </div>
+            <p style={{ color: '#7a9ab8', fontSize: '0.78rem', marginTop: '8px', marginBottom: 0 }}>Press Esc to exit either mode.</p>
+          </div>
+
+          {/* 3. Text Size + Rotation Mode - side by side */}
+          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
+            <div style={{ display: 'flex', gap: '24px' }}>
+              {/* Text Size */}
+              <div>
+                <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Text Size</h6>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button onClick={decrementTextMultiplier} style={{
+                    backgroundColor: '#1565c0', color: '#ffffff', border: 'none', borderRadius: '6px',
+                    padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem',
+                  }}>&#8722;</button>
+                  <span style={{ minWidth: '44px', textAlign: 'center', fontWeight: 'bold', fontSize: '1rem', color: '#ffffff' }}>{textMultiplier}%</span>
+                  <button onClick={incrementTextMultiplier} style={{
+                    backgroundColor: '#1565c0', color: '#ffffff', border: 'none', borderRadius: '6px',
+                    padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem',
+                  }}>+</button>
+                </div>
+              </div>
+
+              {/* Rotation Mode */}
+              <div style={{ flex: 1 }}>
+                <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Rotation Mode</h6>
+                <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+                  {['scroll', 'page', 'scrollAll'].map((mode) => (
+                    <button key={mode} onClick={() => setRotationMode(mode)} style={{
+                      flex: 1, backgroundColor: rotationMode === mode ? '#2e7d32' : 'transparent',
+                      color: rotationMode === mode ? '#ffffff' : '#a0b4c8',
+                      border: `1px solid ${rotationMode === mode ? '#2e7d32' : '#2a4a6b'}`,
+                      borderRadius: '6px', padding: '6px 8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: rotationMode === mode ? 'bold' : 'normal',
+                    }}>
+                      {mode === 'scrollAll' ? 'Scroll All' : mode.charAt(0).toUpperCase() + mode.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <p style={{ color: '#7a9ab8', fontSize: '0.78rem', marginBottom: 0 }}>
+                  {rotationMode === 'scroll' && 'Top 3 locked, positions 4+ scroll'}
+                  {rotationMode === 'page' && 'Pages of 8: 1-8, 9-16, etc.'}
+                  {rotationMode === 'scrollAll' && 'All 8 positions scroll through'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Web Views */}
+          <div>
+            <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Web Views</h6>
+            <p style={{ color: '#a0b4c8', fontSize: '0.8rem', marginBottom: '8px' }}>
+              Open display pages accessible to anyone on the local network.
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <Link to="/results" style={{ flex: 1, textDecoration: 'none' }}>
+                <button style={{
+                  width: '100%', backgroundColor: '#1565c0', color: '#ffffff', border: 'none',
+                  borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
+                }}>Multi Result Mode</button>
+              </Link>
+              <button onClick={() => window.open('/athlete', '_blank')} style={{
+                flex: 1, backgroundColor: '#1565c0', color: '#ffffff', border: 'none',
+                borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
+              }}>
+                <span style={{ marginRight: '6px' }}>&#128269;</span>Athlete Search
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '6px 20px',
+          fontSize: '0.78rem',
+          color: '#7a9ab8',
+          borderTop: '1px solid #1a3050',
+          backgroundColor: '#0a1628',
+        }}>
+          Version 3.0.0 - Gordon Lester - support@polyfield.co.uk
+        </div>
       </div>
-      )}
 
       {/* Debug Log Display */}
       {debugLog.length > 0 && !expandedTable && (

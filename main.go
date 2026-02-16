@@ -879,7 +879,7 @@ func main() {
 	app := NewApp()
 	go StartFiberServer(app)
 	err := wails.Run(&options.App{
-		Title:            "KACPH LIF Display",
+		Title:            "PolyField - Track",
 		Width:            800,
 		Height:           600,
 		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 255},

@@ -693,6 +693,7 @@ function Results() {
               {/* Back Button (always visible) */}
               <div>
                 <button className="btn btn-primary mx-1" onClick={() => navigate("/")}>Back</button>
+                <button className="btn btn-primary mx-1" onClick={() => navigate("/athlete")} title="Athlete Search">&#128269;</button>
               </div>
 
               {/* Desktop-only controls */}
@@ -754,7 +755,7 @@ function Results() {
 
               {/* Version Info */}
               <div>
-                <small className="text-muted">Version 2.0.2 - Gordon Lester - web@kingstonandpoly.org</small>
+                <small className="text-muted">Version 3.0.0 - Gordon Lester - support@polyfield.co.uk</small>
               </div>
             </div>
           </div>
