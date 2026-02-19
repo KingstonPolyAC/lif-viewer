@@ -14,8 +14,12 @@ export function GetDisplayState():Promise<main.DisplayState>;
 
 export function GetWebInterfaceInfo():Promise<string>;
 
+export function SaveGraphic(arg1:string,arg2:string):Promise<string>;
+
 export function SetCurrentLIF(arg1:main.LifData):Promise<void>;
 
 export function SetDisplayState(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetLayoutTheme(arg1:string):Promise<void>;
 
 export function SetRotationMode(arg1:string):Promise<void>;

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChooseDirectory, EnterFullScreen, ExitFullScreen, GetWebInterfaceInfo } from "../wailsjs/go/main/App";
+import { ChooseDirectory, EnterFullScreen, ExitFullScreen, GetWebInterfaceInfo, SaveGraphic } from "../wailsjs/go/main/App";
+import { THEMES, getColumnWidths, shortenClub } from './themes';
 import polyfieldLogo from './polyfield-logo.png';
+import SocialGraphic from './SocialGraphic';
 
 // Fixed dimensions for the default table container.
 const DEFAULT_TABLE_HEIGHT = 192; // in pixels
@@ -55,51 +57,15 @@ const controlPanelStyle = {
   color: '#e0e0e0',
 };
 
-// Table cell style: fixed layout, no wrapping, clipped overflow.
+// Table cell style: fixed layout, no wrapping, clipped overflow, vertically centred.
 const tableCellStyle = {
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'clip',
   padding: '0px',
-  margin: '0px'
+  margin: '0px',
+  verticalAlign: 'middle',
 };
-
-// Compute column widths in "ch" units for five columns
-const computeColumnWidthsCh = (competitors) => {
-  let col1 = 3;
-  let col2 = 4;
-  let col3 = 5;
-  let col4 = 5;
-  let col5 = 5;
-  if (competitors && competitors.length > 0) {
-    col3 = competitors.reduce((max, comp) => {
-      const fullName = (comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "");
-      return fullName.length > max ? fullName.length : max;
-    }, 0) + 1;
-    
-    const sumAffiliation = competitors.reduce((sum, comp) => sum + (comp.affiliation ? comp.affiliation.length : 0), 0);
-    const avgAffiliation = Math.ceil(sumAffiliation / competitors.length) + 1;
-    col4 = Math.min(avgAffiliation, 12);
-    
-    const maxTime = competitors.reduce((max, comp) => {
-      const len = comp.time ? comp.time.length : 0;
-      return len > max ? len : max;
-    }, 0);
-    col5 = Math.min(maxTime + 1, 12);
-    if (col3 <= col4) {
-      col3 = col4 + 1;
-    }
-  }
-  const totalCh = col1 + col2 + col3 + col4 + col5;
-  return { col1, col2, col3, col4, col5, totalCh };
-};
-
-// Ensure the header event name cell clips so the Wind cell remains visible.
-const eventNameCellStyle = (colPercentages) => ({
-  ...tableCellStyle,
-  textAlign: 'left',
-  maxWidth: `calc(${colPercentages.w1} + ${colPercentages.w2} + ${colPercentages.w3} + ${colPercentages.w4})`
-});
 
 // Style for the screensaver image to ensure it fits while maintaining its aspect ratio.
 const screensaverImageStyle = {
@@ -132,7 +98,12 @@ function App() {
   const [appFullScreen, setAppFullScreen] = useState(false);
   const [rotationIndex, setRotationIndex] = useState(0);
   const [rotationMode, setRotationMode] = useState('scroll'); // 'scroll', 'page', or 'scrollAll'
+  const [layoutTheme, setLayoutTheme] = useState('classic');
   
+  // === ALL-LIF DATA & SOCIAL GRAPHIC STATE ===
+  const [allLifData, setAllLifData] = useState([]);
+  const [showSocialGraphic, setShowSocialGraphic] = useState(false);
+
   // === DEBUG STATE ===
   const [debugLog, setDebugLog] = useState([]);
   
@@ -235,6 +206,22 @@ function App() {
     }
   };
 
+  const fetchAllLifData = async () => {
+    try {
+      const hostname = window.location.hostname;
+      const isDesktop = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+      const baseUrl = isDesktop ? 'http://127.0.0.1:3000' : '';
+      const response = await fetch(`${baseUrl}/all-lif`);
+      if (!response.ok) return;
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        setAllLifData(data);
+      }
+    } catch (err) {
+      // Silently fail - stats are non-critical
+    }
+  };
+
   // === DISPLAY STATE SYNC ===
   const syncDisplayState = async (mode, text, imageBase64, rotation = null, lifData = null) => {
     try {
@@ -258,6 +245,8 @@ function App() {
       } else if (currentLifData) {
         payload.currentLIF = currentLifData;
       }
+      // Include layout theme
+      payload.layoutTheme = layoutTheme;
       console.log('[Desktop] Syncing display state:', {
         mode: payload.mode,
         activeText: payload.activeText,
@@ -402,21 +391,196 @@ function App() {
     return { tableFontSize: finalFontSize, rowStyle: rowStyleObj };
   }, [expandedTable, windowSize, textMultiplier]);
 
-  // Compute relative column widths as percentages.
-  const colPercentages = useMemo(() => {
-    const { col1, col2, col3, col4, col5 } = computeColumnWidthsCh(displayedCompetitors);
-    const total = col1 + col2 + col3 + col4 + col5;
+  // Compute relative column widths as percentages, respecting theme column order.
+  // Also tracks active columns (bib may be dropped if space is tight).
+  const { colPercentages, activeColumns } = useMemo(() => {
+    const theme = THEMES[layoutTheme] || THEMES.classic;
+    const compsForWidth = displayedCompetitors.map(c => ({
+      ...c,
+      affiliation: shortenClub(c.affiliation),
+    }));
+    const { widths, totalCh, columns } = getColumnWidths(compsForWidth, theme.columns);
     return {
-      w1: (col1 / total) * 100 + '%',
-      w2: (col2 / total) * 100 + '%',
-      w3: (col3 / total) * 100 + '%',
-      w4: (col4 / total) * 100 + '%',
-      w5: (col5 / total) * 100 + '%'
+      colPercentages: widths.map(w => (w / totalCh) * 100 + '%'),
+      activeColumns: columns,
     };
-  }, [displayedCompetitors]);
+  }, [displayedCompetitors, layoutTheme]);
 
-  // Compute style for header event name cell.
-  const headerEventNameStyle = useMemo(() => eventNameCellStyle(colPercentages), [colPercentages]);
+  // Compute style for header event name cell — spans all columns except the last (wind).
+  const headerColSpan = activeColumns.length - 1;
+  const headerEventNameStyle = useMemo(() => ({
+    ...tableCellStyle,
+    textAlign: 'left',
+    maxWidth: `calc(${colPercentages.slice(0, headerColSpan).join(' + ')})`
+  }), [colPercentages, headerColSpan]);
+
+  // === COMPETITION STATS ===
+  const competitionStats = useMemo(() => {
+    if (!allLifData || allLifData.length === 0) {
+      return { totalDistance: '\u2014', totalAthletes: '\u2014', totalTime: '\u2014', avgWind: '\u2014' };
+    }
+
+    // Parse distance in metres from event name
+    const parseDistance = (eventName) => {
+      if (!eventName) return 0;
+      const name = eventName.toUpperCase();
+      // Mile event
+      if (/\bMILE\b/.test(name)) return 1609;
+      // Relay: 4x100m, 4x300m, 4x400m etc.
+      const relayMatch = name.match(/(\d+)\s*[xX]\s*(\d+)/);
+      if (relayMatch) return parseInt(relayMatch[1], 10) * parseInt(relayMatch[2], 10);
+      // Handle numbers with commas (e.g. 10,000m)
+      const commaMatch = name.match(/\b(\d{1,3}(?:,\d{3})+)\s*(?:M(?:H)?|H)?\b/);
+      if (commaMatch) return parseInt(commaMatch[1].replace(/,/g, ''), 10);
+      // Match patterns like "100M", "1500M", "100 ", "400H", "60MH", "3000M SC" etc.
+      const match = name.match(/\b(\d+)\s*(?:M(?:H)?|H)\b/);
+      if (match) return parseInt(match[1], 10);
+      // Try bare number at start or after age-group prefix (e.g. "U17G 60mh")
+      const bareMatch = name.match(/\b(\d+)\b/);
+      if (bareMatch) {
+        const val = parseInt(bareMatch[1], 10);
+        // Exclude unlikely distances (age groups like 17, 15, 13 etc.)
+        // Valid track distances: 50, 60, 75, 80, 100, 110, 150, 200, 300, 400, 600, 800, 1000, 1500, 2000, 3000, 5000, 10000
+        if (val >= 50) return val;
+      }
+      return 0;
+    };
+
+    // Parse time string to seconds
+    const parseTime = (timeStr) => {
+      if (!timeStr) return 0;
+      const t = timeStr.trim().toUpperCase();
+      if (t === 'DQ' || t === 'DNF' || t === 'DNS' || t === '' || t === '-') return 0;
+      // h:mm:ss.xx
+      const hmsMatch = t.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/);
+      if (hmsMatch) {
+        return parseInt(hmsMatch[1], 10) * 3600 + parseInt(hmsMatch[2], 10) * 60 + parseFloat(hmsMatch[3]);
+      }
+      // mm:ss.xx
+      const msMatch = t.match(/^(\d+):(\d+(?:\.\d+)?)$/);
+      if (msMatch) {
+        return parseInt(msMatch[1], 10) * 60 + parseFloat(msMatch[2]);
+      }
+      // ss.xx
+      const sMatch = t.match(/^(\d+(?:\.\d+)?)$/);
+      if (sMatch) {
+        return parseFloat(sMatch[1]);
+      }
+      return 0;
+    };
+
+    // Format seconds to Xh Xm Xs
+    const formatTotalTime = (totalSeconds) => {
+      if (totalSeconds <= 0) return '\u2014';
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = Math.floor(totalSeconds % 60);
+      if (h > 0) return `${h}h ${m}m ${s}s`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    };
+
+    let totalDistanceM = 0;
+    let totalEntries = 0;
+    let totalTimeSec = 0;
+    let windValues = [];
+
+    allLifData.forEach((event) => {
+      const competitors = event.competitors || [];
+      const dist = parseDistance(event.eventName);
+      totalDistanceM += dist * competitors.length;
+      totalEntries += competitors.length;
+
+      competitors.forEach((comp) => {
+        totalTimeSec += parseTime(comp.time);
+      });
+
+      // Parse wind
+      if (event.wind) {
+        const windStr = event.wind.replace(/m\/s/i, '').trim();
+        const windVal = parseFloat(windStr);
+        if (!isNaN(windVal)) {
+          windValues.push(windVal);
+        }
+      }
+    });
+
+    // Format distance
+    let totalDistance;
+    if (totalDistanceM >= 1000) {
+      totalDistance = (totalDistanceM / 1000).toFixed(1) + ' km';
+    } else {
+      totalDistance = totalDistanceM + ' m';
+    }
+    if (totalDistanceM === 0 && totalEntries > 0) {
+      totalDistance = '0 m';
+    }
+
+    // Format wind
+    let avgWind = 'N/A';
+    if (windValues.length > 0) {
+      const avg = windValues.reduce((a, b) => a + b, 0) / windValues.length;
+      avgWind = (avg >= 0 ? '+' : '') + avg.toFixed(1) + ' m/s';
+    }
+
+    // Extract short event type from full event name (e.g. "U17G 100m H1" → "100m")
+    const parseEventType = (eventName) => {
+      if (!eventName) return null;
+      const name = eventName.toUpperCase();
+      // Relay: 4x100m etc.
+      const relayMatch = name.match(/(\d+)\s*[xX]\s*(\d+)/);
+      if (relayMatch) return `${relayMatch[1]}x${relayMatch[2]}m`;
+      // Mile
+      if (/\bMILE\b/.test(name)) return 'Mile';
+      // Steeplechase: 3000m SC / 3000m Steeplechase
+      const scMatch = name.match(/\b(\d[\d,]*)\s*M?\s*(?:STEEPLECHASE|SC)\b/);
+      if (scMatch) return `${scMatch[1].replace(/,/g, '')}m SC`;
+      // Hurdles: 100mH, 110mH etc.
+      const hMatch = name.match(/\b(\d[\d,]*)\s*M?\s*H(?:URDLES?)?\b/);
+      if (hMatch) return `${hMatch[1].replace(/,/g, '')}mH`;
+      // Flat with M suffix: 100m, 1500m, 10,000m
+      const mMatch = name.match(/\b(\d[\d,]*)\s*M\b/);
+      if (mMatch) return `${mMatch[1].replace(/,/g, '')}m`;
+      return null;
+    };
+
+    // Group all finisher speeds by event type, tracking distance for sorting
+    const speedsByType = {};
+    const distByType = {};
+    allLifData.forEach((event) => {
+      const dist = parseDistance(event.eventName);
+      if (dist === 0) return; // Skip field events
+      const eventType = parseEventType(event.eventName);
+      if (!eventType) return;
+      distByType[eventType] = dist;
+      const competitors = event.competitors || [];
+      competitors.forEach((comp) => {
+        const t = parseTime(comp.time);
+        if (t > 0) {
+          if (!speedsByType[eventType]) speedsByType[eventType] = [];
+          speedsByType[eventType].push(dist / t); // m/s
+        }
+      });
+    });
+
+    // Build eventSpeeds array sorted shortest to longest distance
+    const eventSpeeds = Object.keys(speedsByType)
+      .sort((a, b) => distByType[a] - distByType[b])
+      .map((eventType) => {
+        const speeds = speedsByType[eventType];
+        const avgMs = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+        return { eventName: eventType, speedMs: avgMs, speedMph: avgMs * 2.23694 };
+      });
+
+    return {
+      totalDistance: totalEntries > 0 ? totalDistance : '\u2014',
+      totalDistanceM: totalDistanceM,
+      totalAthletes: totalEntries > 0 ? String(totalEntries) : '\u2014',
+      totalTime: totalEntries > 0 ? formatTotalTime(totalTimeSec) : '\u2014',
+      avgWind: totalEntries > 0 ? avgWind : '\u2014',
+      eventSpeeds,
+    };
+  }, [allLifData]);
 
   // === EFFECTS ===
   
@@ -466,6 +630,12 @@ function App() {
         addDebugLog(`Rotation mode synced from server: ${state.rotationMode}`);
       }
 
+      // Update layout theme if different
+      if (state.layoutTheme && state.layoutTheme !== layoutTheme) {
+        setLayoutTheme(state.layoutTheme);
+        addDebugLog(`Layout theme synced from server: ${state.layoutTheme}`);
+      }
+
       // Update display mode to match server - always sync to ensure UI reflects server state
       if (state.mode) {
         if (state.mode === 'lif') {
@@ -494,6 +664,7 @@ function App() {
   // Data fetching effect - simple polling every 3 seconds
   useEffect(() => {
     fetchLatestData(); // Initial fetch
+    fetchAllLifData(); // Initial fetch for stats
 
     // Only fetch display state if we're NOT in the Wails desktop app
     // Desktop app is the source of truth and only posts display state
@@ -502,6 +673,7 @@ function App() {
 
     const interval = setInterval(() => {
       fetchLatestData();
+      fetchAllLifData();
       if (!isDesktopApp) {
         fetchDisplayState(); // LAN viewers fetch display state from server
       }
@@ -563,6 +735,15 @@ function App() {
       addDebugLog(`Syncing rotation mode to server: ${rotationMode}`);
     }
   }, [rotationMode]);
+
+  // Sync layout theme changes to server (desktop app only)
+  useEffect(() => {
+    const hostname = window.location.hostname;
+    const isDesktopApp = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+    if (isDesktopApp && layoutTheme) {
+      syncDisplayState(displayMode, activeText, linkedImage, rotationMode);
+    }
+  }, [layoutTheme]);
 
   // Competitor rotation effect
   useEffect(() => {
@@ -670,51 +851,67 @@ function App() {
   };
 
   // === RENDER FUNCTIONS ===
-  const renderLIFTable = () => (
-    <div style={{ ...defaultTableContainerStyle, fontSize: tableFontSize + 'px' }}>
-      <table style={{
-        width: '100%',
-        height: '100%',
-        tableLayout: 'fixed',
-        borderCollapse: 'collapse',
-        color: 'white'
-      }}>
-        <colgroup>
-          <col style={{ width: colPercentages.w1 }} />
-          <col style={{ width: colPercentages.w2 }} />
-          <col style={{ width: colPercentages.w3 }} />
-          <col style={{ width: colPercentages.w4 }} />
-          <col style={{ width: colPercentages.w5 }} />
-        </colgroup>
-        <thead>
-          <tr style={{ backgroundColor: '#003366', fontWeight: 'bold', ...rowStyle }}>
-            <th colSpan="4" style={headerEventNameStyle}>{currentLifData.eventName}</th>
-            <th style={{ ...tableCellStyle, textAlign: 'right', paddingRight: '1ch' }}>{currentLifData.wind}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {displayedCompetitors.map((comp, index) => {
-            const competitorRowStyle = { ...rowStyle };
-            // Show border after row 2 only in scroll mode to indicate locked top 3
-            if (currentLifData && currentLifData.competitors.length > 8 && index === 2 && rotationMode === 'scroll') {
-              competitorRowStyle.borderBottom = '1px solid black';
-            }
-            return (
-              <tr key={index} style={{ backgroundColor: index % 2 === 0 ? '#191970' : '#4682B4', ...competitorRowStyle }}>
-                <td style={{ ...tableCellStyle, textAlign: 'left' }}>{comp.place}</td>
-                <td style={{ ...tableCellStyle, textAlign: 'left' }}>{comp.id}</td>
-                <td style={{ ...tableCellStyle, textAlign: 'left' }}>
-                  {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
-                </td>
-                <td style={{ ...tableCellStyle, textAlign: 'left' }}>{comp.affiliation}</td>
-                <td style={{ ...tableCellStyle, textAlign: 'right', paddingRight: '1ch' }}>{comp.time}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+
+  // Helper: get cell content and style for a column key
+  const getCellContent = (comp, colKey, theme) => {
+    const colStyle = (theme.columnStyles && theme.columnStyles[colKey]) || {};
+    const base = { ...tableCellStyle, paddingRight: '1ch' };
+    switch (colKey) {
+      case 'place':
+        return { content: comp.place, style: { ...base, textAlign: 'left', ...colStyle } };
+      case 'bib':
+        return { content: comp.id, style: { ...base, textAlign: 'left', ...colStyle } };
+      case 'name':
+        return { content: (comp.firstName ? comp.firstName + " " : "") + (comp.lastName || ""), style: { ...base, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...colStyle } };
+      case 'affiliation':
+        return { content: shortenClub(comp.affiliation), style: { ...base, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...colStyle } };
+      case 'time':
+        return { content: comp.time, style: { ...base, textAlign: 'right', ...colStyle } };
+      default:
+        return { content: '', style: base };
+    }
+  };
+
+  const renderLIFTable = () => {
+    const theme = THEMES[layoutTheme] || THEMES.classic;
+    return (
+      <div style={{ ...defaultTableContainerStyle, fontSize: tableFontSize + 'px' }}>
+        <table style={{
+          width: '100%',
+          height: '100%',
+          tableLayout: 'fixed',
+          borderCollapse: 'collapse',
+          color: theme.rowText
+        }}>
+          <colgroup>
+            {colPercentages.map((w, i) => <col key={i} style={{ width: w }} />)}
+          </colgroup>
+          <thead>
+            <tr style={{ backgroundColor: theme.headerBg, color: theme.headerText, fontWeight: 'bold', ...rowStyle }}>
+              <th colSpan={headerColSpan} style={headerEventNameStyle}>{currentLifData.eventName}</th>
+              <th style={{ ...tableCellStyle, textAlign: 'right', paddingRight: '1ch' }}>{currentLifData.wind}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayedCompetitors.map((comp, index) => {
+              const competitorRowStyle = { ...rowStyle };
+              if (currentLifData && currentLifData.competitors.length > 8 && index === 2 && rotationMode === 'scroll') {
+                competitorRowStyle.borderBottom = '1px solid black';
+              }
+              return (
+                <tr key={index} style={{ backgroundColor: index % 2 === 0 ? theme.evenRowBg : theme.oddRowBg, ...competitorRowStyle }}>
+                  {activeColumns.map((colKey, ci) => {
+                    const { content, style } = getCellContent(comp, colKey, theme);
+                    return <td key={ci} style={style}>{content}</td>;
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   const renderTextDisplay = () => (
     <div style={{
@@ -805,6 +1002,7 @@ function App() {
 
     // Default: show LIF table or fallback
     if (currentLifData && currentLifData.competitors && currentLifData.competitors.length > 0) {
+      const theme = THEMES[layoutTheme] || THEMES.classic;
       return (
         <div style={{ ...expandedTableContainerStyle, fontSize: tableFontSize + 'px' }}>
           <table style={{
@@ -812,37 +1010,29 @@ function App() {
             height: '100%',
             tableLayout: 'fixed',
             borderCollapse: 'collapse',
-            color: 'white'
+            color: theme.rowText
           }}>
             <colgroup>
-              <col style={{ width: colPercentages.w1 }} />
-              <col style={{ width: colPercentages.w2 }} />
-              <col style={{ width: colPercentages.w3 }} />
-              <col style={{ width: colPercentages.w4 }} />
-              <col style={{ width: colPercentages.w5 }} />
+              {colPercentages.map((w, i) => <col key={i} style={{ width: w }} />)}
             </colgroup>
             <thead>
-              <tr style={{ backgroundColor: '#003366', fontWeight: 'bold', ...rowStyle }}>
-                <th colSpan="4" style={headerEventNameStyle}>{currentLifData.eventName}</th>
+              <tr style={{ backgroundColor: theme.headerBg, color: theme.headerText, fontWeight: 'bold', ...rowStyle }}>
+                <th colSpan={headerColSpan} style={headerEventNameStyle}>{currentLifData.eventName}</th>
                 <th style={{ ...tableCellStyle, textAlign: 'right', paddingRight: '1ch' }}>{currentLifData.wind}</th>
               </tr>
             </thead>
             <tbody>
               {displayedCompetitors.map((comp, index) => {
                 const competitorRowStyle = { ...rowStyle };
-                // Show border after row 2 only in scroll mode to indicate locked top 3
                 if (currentLifData && currentLifData.competitors.length > 8 && index === 2 && rotationMode === 'scroll') {
                   competitorRowStyle.borderBottom = '1px solid black';
                 }
                 return (
-                  <tr key={index} style={{ backgroundColor: index % 2 === 0 ? '#191970' : '#4682B4', ...competitorRowStyle }}>
-                    <td style={{ ...tableCellStyle, textAlign: 'left' }}>{comp.place}</td>
-                    <td style={{ ...tableCellStyle, textAlign: 'left' }}>{comp.id}</td>
-                    <td style={{ ...tableCellStyle, textAlign: 'left' }}>
-                      {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
-                    </td>
-                    <td style={{ ...tableCellStyle, textAlign: 'left' }}>{comp.affiliation}</td>
-                    <td style={{ ...tableCellStyle, textAlign: 'right', paddingRight: '1ch' }}>{comp.time}</td>
+                  <tr key={index} style={{ backgroundColor: index % 2 === 0 ? theme.evenRowBg : theme.oddRowBg, ...competitorRowStyle }}>
+                    {activeColumns.map((colKey, ci) => {
+                      const { content, style } = getCellContent(comp, colKey, theme);
+                      return <td key={ci} style={style}>{content}</td>;
+                    })}
                   </tr>
                 );
               })}
@@ -1072,10 +1262,28 @@ function App() {
                 </p>
               </div>
             </div>
+
+            {/* Display Theme */}
+            <div style={{ marginTop: '12px' }}>
+              <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Display Theme</h6>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {Object.entries(THEMES).map(([key, theme]) => (
+                  <button key={key} onClick={() => setLayoutTheme(key)} style={{
+                    flex: 1, backgroundColor: layoutTheme === key ? '#2e7d32' : 'transparent',
+                    color: layoutTheme === key ? '#ffffff' : '#a0b4c8',
+                    border: `1px solid ${layoutTheme === key ? '#2e7d32' : '#2a4a6b'}`,
+                    borderRadius: '6px', padding: '6px 8px', cursor: 'pointer', fontSize: '0.85rem',
+                    fontWeight: layoutTheme === key ? 'bold' : 'normal',
+                  }}>
+                    {theme.name}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* 4. Web Views */}
-          <div>
+          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
             <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Web Views</h6>
             <p style={{ color: '#a0b4c8', fontSize: '0.8rem', marginBottom: '8px' }}>
               Open display pages accessible to anyone on the local network.
@@ -1087,12 +1295,50 @@ function App() {
                   borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
                 }}>Multi Result Mode</button>
               </Link>
-              <button onClick={() => window.open('/athlete', '_blank')} style={{
+              <button onClick={() => {
+                const hn = window.location.hostname;
+                const isDesktop = hn === '' || hn === 'wails.localhost' || window.location.protocol === 'wails:';
+                window.open(isDesktop ? 'http://127.0.0.1:3000/athlete' : `${window.location.origin}/athlete`, '_blank');
+              }} style={{
                 flex: 1, backgroundColor: '#1565c0', color: '#ffffff', border: 'none',
                 borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
               }}>
                 <span style={{ marginRight: '6px' }}>&#128269;</span>Athlete Search
               </button>
+              <button onClick={() => setShowSocialGraphic(true)} style={{
+                flex: 1, backgroundColor: '#e65100', color: '#ffffff', border: 'none',
+                borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
+              }}>Social Graphic</button>
+            </div>
+          </div>
+
+          {/* 5. Live Competition Stats */}
+          <div>
+            <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Competition Stats</h6>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '10px',
+            }}>
+              {[
+                { value: competitionStats.totalDistance, label: 'Total Distance' },
+                { value: competitionStats.totalAthletes, label: 'Race Entries' },
+                { value: competitionStats.totalTime, label: 'Total Race Time' },
+                { value: competitionStats.avgWind, label: 'Average Wind' },
+              ].map((stat, i) => (
+                <div key={i} style={{
+                  backgroundColor: '#0a1628',
+                  border: '1px solid #1a3050',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  textAlign: 'center',
+                }}>
+                  <div style={{ color: '#FFD700', fontWeight: 'bold', fontSize: '1.2rem', marginBottom: '2px' }}>
+                    {stat.value}
+                  </div>
+                  <div style={{ color: '#7a9ab8', fontSize: '0.75rem' }}>{stat.label}</div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1135,6 +1381,18 @@ function App() {
           ))}
         </div>
       )}
+
+      {/* Social Graphic Modal */}
+      <SocialGraphic
+        isOpen={showSocialGraphic}
+        onClose={() => setShowSocialGraphic(false)}
+        stats={competitionStats}
+        onSave={async (dataUrl, units) => {
+          const path = await SaveGraphic(dataUrl, units);
+          addDebugLog(`Graphic saved: ${path}`);
+          return path;
+        }}
+      />
     </div>
   );
 }

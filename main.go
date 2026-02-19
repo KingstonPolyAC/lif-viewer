@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/base64"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -62,6 +63,7 @@ type DisplayState struct {
 	ActiveText   string   `json:"activeText"`   // Text to display
 	ImageBase64  string   `json:"imageBase64"`  // Base64 encoded image for screensaver
 	RotationMode string   `json:"rotationMode"` // 'scroll', 'page', or 'scrollAll'
+	LayoutTheme  string   `json:"layoutTheme"`  // 'classic', 'modernDark', 'light', or 'highContrast'
 	CurrentLIF   *LifData `json:"currentLIF"`   // Current single event LIF for full screen mode
 }
 
@@ -83,6 +85,7 @@ func NewApp() *App {
 			ActiveText:   "",
 			ImageBase64:  "",
 			RotationMode: "scroll",
+			LayoutTheme:  "classic",
 		},
 	}
 }
@@ -132,12 +135,30 @@ func (a *App) SetRotationMode(rotationMode string) {
 	log.Printf("Rotation mode updated: %s", rotationMode)
 }
 
+// SetLayoutTheme updates the layout theme (called from frontend)
+func (a *App) SetLayoutTheme(layoutTheme string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.displayState == nil {
+		a.displayState = &DisplayState{
+			Mode:         "lif",
+			ActiveText:   "",
+			ImageBase64:  "",
+			RotationMode: "scroll",
+			LayoutTheme:  layoutTheme,
+		}
+	} else {
+		a.displayState.LayoutTheme = layoutTheme
+	}
+	log.Printf("Layout theme updated: %s", layoutTheme)
+}
+
 // GetDisplayState returns the current display state
 func (a *App) GetDisplayState() *DisplayState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.displayState == nil {
-		return &DisplayState{Mode: "lif", ActiveText: "", ImageBase64: "", RotationMode: "scroll"}
+		return &DisplayState{Mode: "lif", ActiveText: "", ImageBase64: "", RotationMode: "scroll", LayoutTheme: "classic"}
 	}
 	return a.displayState
 }
@@ -165,6 +186,38 @@ func (a *App) ChooseDirectory() (string, error) {
 	a.monitoredDir = dir
 	go a.watchDirectory()
 	return dir, nil
+}
+
+// SaveGraphic saves a base64-encoded PNG image to the monitored directory.
+// The filename is PolyField-Track_DDMMYY_<units>.png
+func (a *App) SaveGraphic(base64Data string, units string) (string, error) {
+	if a.monitoredDir == "" {
+		return "", fmt.Errorf("no directory selected")
+	}
+
+	// Strip the data URL prefix if present
+	if idx := strings.Index(base64Data, ","); idx != -1 {
+		base64Data = base64Data[idx+1:]
+	}
+
+	// Decode base64
+	imgBytes, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode image data: %v", err)
+	}
+
+	// Generate filename: PolyField-Track_DDMMYY_Units.png
+	now := time.Now()
+	dateStr := now.Format("020106") // DDMMYY
+	filename := fmt.Sprintf("PolyField-Track_%s_%s.png", dateStr, units)
+	fullPath := filepath.Join(a.monitoredDir, filename)
+
+	if err := os.WriteFile(fullPath, imgBytes, 0644); err != nil {
+		return "", fmt.Errorf("failed to save graphic: %v", err)
+	}
+
+	log.Printf("Graphic saved: %s", fullPath)
+	return fullPath, nil
 }
 
 func (a *App) EnterFullScreen() {
@@ -846,6 +899,9 @@ func StartFiberServer(app *App) {
 		app.SetDisplayState(state.Mode, state.ActiveText, state.ImageBase64)
 		if state.RotationMode != "" {
 			app.SetRotationMode(state.RotationMode)
+		}
+		if state.LayoutTheme != "" {
+			app.SetLayoutTheme(state.LayoutTheme)
 		}
 		app.SetCurrentLIF(state.CurrentLIF)
 		return c.JSON(map[string]interface{}{"success": true})

@@ -65,6 +65,7 @@ export namespace main {
 	    activeText: string;
 	    imageBase64: string;
 	    rotationMode: string;
+	    layoutTheme: string;
 	    currentLIF?: LifData;
 	
 	    static createFrom(source: any = {}) {
@@ -77,6 +78,7 @@ export namespace main {
 	        this.activeText = source["activeText"];
 	        this.imageBase64 = source["imageBase64"];
 	        this.rotationMode = source["rotationMode"];
+	        this.layoutTheme = source["layoutTheme"];
 	        this.currentLIF = this.convertValues(source["currentLIF"], LifData);
 	    }
 	

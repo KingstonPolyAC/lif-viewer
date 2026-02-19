@@ -26,12 +26,20 @@ export function GetWebInterfaceInfo() {
   return window['go']['main']['App']['GetWebInterfaceInfo']();
 }
 
+export function SaveGraphic(arg1, arg2) {
+  return window['go']['main']['App']['SaveGraphic'](arg1, arg2);
+}
+
 export function SetCurrentLIF(arg1) {
   return window['go']['main']['App']['SetCurrentLIF'](arg1);
 }
 
 export function SetDisplayState(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetDisplayState'](arg1, arg2, arg3);
+}
+
+export function SetLayoutTheme(arg1) {
+  return window['go']['main']['App']['SetLayoutTheme'](arg1);
 }
 
 export function SetRotationMode(arg1) {

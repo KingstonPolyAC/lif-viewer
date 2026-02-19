@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GetAllLIFData, ChooseDirectory, EnterFullScreen, ExitFullScreen, GetWebInterfaceInfo } from '../wailsjs/go/main/App';
+import { THEMES, getColumnWidths, shortenClub } from './themes';
 
 function Results() {
   const navigate = useNavigate();
@@ -22,6 +23,7 @@ function Results() {
   const [viewMode, setViewMode] = useState('multi'); // 'multi' or 'fullscreen'
   const [currentLIF, setCurrentLIF] = useState(null); // Current single event from desktop
   const [rotationMode, setRotationMode] = useState('scroll'); // Synced from desktop
+  const [layoutTheme, setLayoutTheme] = useState('classic'); // Synced from desktop
 
   // Display mode synced from desktop (for text/screensaver overlays)
   const [syncedDisplayMode, setSyncedDisplayMode] = useState('lif'); // 'lif', 'text', or 'screensaver'
@@ -83,6 +85,11 @@ function Results() {
         // Update rotation mode if available
         if (state.rotationMode) {
           setRotationMode(state.rotationMode);
+        }
+
+        // Update layout theme if available
+        if (state.layoutTheme) {
+          setLayoutTheme(state.layoutTheme);
         }
 
         // Update display mode and overlays (text/screensaver)
@@ -255,10 +262,21 @@ function Results() {
     }
   }, [displayMode, gridCount, lifDataArray.length]);
 
-  // Track window size for responsive layout
+  // Track window size for responsive layout.
+  // Skip updates caused by browser zoom (devicePixelRatio change) so that
+  // fixed CSS pixel values scale naturally with the browser's zoom level.
+  const dprRef = useRef(window.devicePixelRatio);
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   useEffect(() => {
-    const handleResize = () => setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    const handleResize = () => {
+      const currentDPR = window.devicePixelRatio;
+      if (currentDPR !== dprRef.current) {
+        // Browser zoom changed — don't update so zoom scales naturally
+        dprRef.current = currentDPR;
+        return;
+      }
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -469,30 +487,65 @@ function Results() {
     }
   }, [viewMode, rotationMode]);
 
+  // Helper: get cell content and style for a column key
+  const getCellContent = (comp, colKey, theme, cellStyle) => {
+    const colOverride = (theme.columnStyles && theme.columnStyles[colKey]) || {};
+    const base = { ...cellStyle, paddingRight: '1ch' };
+    switch (colKey) {
+      case 'place':
+        return { content: comp.place, style: { ...base, fontWeight: 'bold', borderRight: '1px solid #666', ...colOverride } };
+      case 'bib':
+        return { content: comp.id, style: { ...base, ...colOverride } };
+      case 'name':
+        return { content: (comp.firstName ? comp.firstName + " " : "") + (comp.lastName || ""), style: { ...base, ...colOverride } };
+      case 'affiliation':
+        return { content: shortenClub(comp.affiliation), style: { ...base, ...colOverride } };
+      case 'time':
+        return { content: comp.time, style: { ...base, justifyContent: 'flex-end', ...colOverride } };
+      default:
+        return { content: '', style: base };
+    }
+  };
+
   // Panel component: displays a grid-based table with 1 header row and 8 competitor rows.
   // CSS Grid ensures all 9 rows fit perfectly with no clipping
   const Panel = ({ data, panelFontSize, panelSize }) => {
+    const theme = THEMES[layoutTheme] || THEMES.classic;
     const competitors = data.competitors || [];
     const displayedCompetitors = competitors.length >= 8
       ? competitors.slice(0, 8)
       : [...competitors, ...Array(8 - competitors.length).fill({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" })];
-    const colWidths = computeColumnWidthsCh(displayedCompetitors);
-    const hasAffiliation = colWidths.col4 > 0;
 
-    // Use minmax(min-content, auto) to guarantee columns never shrink below content width
+    // Apply shortenClub for width calculation
+    const compsForWidth = displayedCompetitors.map(c => ({ ...c, affiliation: shortenClub(c.affiliation) }));
+    const { columns: activeColumns } = getColumnWidths(compsForWidth, theme.columns);
+    const hasAffiliation = activeColumns.includes('affiliation') && compsForWidth.some(c => c.affiliation && c.affiliation.length > 0);
+
+    // If no affiliation data, filter it out
+    const columnsToRender = hasAffiliation ? activeColumns : activeColumns.filter(c => c !== 'affiliation');
+
+    // Place and time: max-content so they NEVER clip.
+    // Name: 1fr (fills remaining, clips if needed).
+    // Affiliation: minmax(0, max-content) so it shows what fits but clips before time.
+    // Bib: max-content (small, never clips).
+    const gridCols = columnsToRender.map(col => {
+      if (col === 'place' || col === 'time') return 'max-content';
+      if (col === 'bib') return 'max-content';
+      if (col === 'name') return 'minmax(0, 1fr)';
+      if (col === 'affiliation') return 'minmax(0, max-content)';
+      return 'max-content';
+    }).join(' ');
+
     const gridContainerStyle = {
       width: panelSize.panelWidth,
       height: panelSize.panelHeight,
       backgroundColor: '#000',
       border: '1px solid #555',
-      overflowX: 'auto', // Allow horizontal scroll if content is too wide
-      overflowY: 'hidden',
+      overflow: 'hidden',
       display: 'grid',
-      gridTemplateRows: 'repeat(9, 1fr)', // 9 equal rows (1 header + 8 competitors)
-      gridTemplateColumns: hasAffiliation
-        ? `minmax(min-content, auto) minmax(min-content, auto) 1fr minmax(${colWidths.col4}ch, auto) minmax(min-content, auto)`
-        : `minmax(min-content, auto) minmax(min-content, auto) 1fr minmax(min-content, auto)`,
-      color: 'white',
+      gridTemplateRows: 'repeat(9, 1fr)',
+      gridTemplateColumns: gridCols,
+      color: theme.rowText,
       fontSize: panelFontSize + 'px'
     };
 
@@ -505,29 +558,27 @@ function Results() {
       alignItems: 'center'
     };
 
+    const headerSpan = columnsToRender.length - 1;
+
     return (
       <div style={gridContainerStyle}>
-        {/* Header row - spans all columns except last for event name */}
-        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', gridColumn: hasAffiliation ? '1 / 5' : '1 / 4' }}>
+        {/* Header row */}
+        <div style={{ ...cellStyle, backgroundColor: theme.headerBg, color: theme.headerText, fontWeight: 'bold', gridColumn: `1 / ${headerSpan + 1}` }}>
           {data.eventName}
         </div>
-        {/* Header row - last column for wind */}
-        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', justifyContent: 'flex-end' }}>
+        <div style={{ ...cellStyle, backgroundColor: theme.headerBg, color: theme.headerText, fontWeight: 'bold', justifyContent: 'flex-end' }}>
           {data.wind}
         </div>
 
         {/* Competitor rows */}
         {displayedCompetitors.map((comp, idx) => {
-          const bgColor = idx % 2 === 0 ? '#191970' : '#4682B4';
+          const bgColor = idx % 2 === 0 ? theme.evenRowBg : theme.oddRowBg;
           return (
             <React.Fragment key={idx}>
-              <div style={{ ...cellStyle, backgroundColor: bgColor, fontWeight: 'bold', borderRight: '1px solid #666' }}>{comp.place}</div>
-              <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor }}>{comp.id}</div>
-              <div style={{ ...cellStyle, backgroundColor: bgColor }}>
-                {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
-              </div>
-              {hasAffiliation && <div style={{ ...cellStyle, backgroundColor: bgColor }}>{comp.affiliation}</div>}
-              <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor, textAlign: 'right' }}>{comp.time}</div>
+              {columnsToRender.map((colKey, ci) => {
+                const { content, style } = getCellContent(comp, colKey, theme, cellStyle);
+                return <div key={ci} style={{ ...style, backgroundColor: bgColor }}>{content}</div>;
+              })}
             </React.Fragment>
           );
         })}
@@ -537,6 +588,7 @@ function Results() {
 
   // Full screen table component - matches desktop App.jsx expanded display exactly
   const FullScreenTable = () => {
+    const theme = THEMES[layoutTheme] || THEMES.classic;
     const containerStyle = {
       width: '100vw',
       height: fullScreenAvailableHeight + 'px',
@@ -593,20 +645,34 @@ function Results() {
       );
     }
 
-    const colWidths = computeColumnWidthsCh(displayedCompetitors);
-    const hasAffiliation = colWidths.col4 > 0;
+    // Apply shortenClub for width calculation
+    const compsForWidth = displayedCompetitors.map(c => ({ ...c, affiliation: shortenClub(c.affiliation) }));
+    const { columns: activeColumns } = getColumnWidths(compsForWidth, theme.columns);
+    const hasAffiliation = activeColumns.includes('affiliation') && compsForWidth.some(c => c.affiliation && c.affiliation.length > 0);
 
-    // Use minmax(min-content, auto) to guarantee columns never shrink below content width
+    const columnsToRender = hasAffiliation ? activeColumns : activeColumns.filter(c => c !== 'affiliation');
+
+    // Place and time: max-content so they NEVER clip.
+    // Name: 1fr (fills remaining, clips if needed).
+    // Affiliation: minmax(0, max-content) so it clips before time.
+    // Bib: max-content.
+    const gridCols = columnsToRender.map(col => {
+      if (col === 'place' || col === 'time') return 'max-content';
+      if (col === 'bib') return 'max-content';
+      if (col === 'name') return 'minmax(0, 1fr)';
+      if (col === 'affiliation') return 'minmax(0, max-content)';
+      return 'max-content';
+    }).join(' ');
+    const headerSpan = columnsToRender.length - 1;
+
     const gridStyle = {
       ...containerStyle,
       display: 'grid',
-      gridTemplateRows: 'repeat(9, 1fr)', // 9 equal rows (1 header + 8 competitors)
-      gridTemplateColumns: hasAffiliation
-        ? `minmax(min-content, auto) minmax(min-content, auto) 1fr minmax(${colWidths.col4}ch, auto) minmax(min-content, auto)`
-        : `minmax(min-content, auto) minmax(min-content, auto) 1fr minmax(min-content, auto)`,
-      color: 'white',
+      gridTemplateRows: 'repeat(9, 1fr)',
+      gridTemplateColumns: gridCols,
+      color: theme.rowText,
       fontSize: fullScreenFontSize + 'px',
-      overflowX: 'auto' // Allow horizontal scroll if content is too wide
+      overflow: 'hidden'
     };
 
     const cellStyle = {
@@ -620,31 +686,26 @@ function Results() {
 
     return (
       <div style={gridStyle}>
-        {/* Header row - spans columns for event name (all but last column) */}
-        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', gridColumn: hasAffiliation ? '1 / 5' : '1 / 4' }}>
+        {/* Header row */}
+        <div style={{ ...cellStyle, backgroundColor: theme.headerBg, color: theme.headerText, fontWeight: 'bold', gridColumn: `1 / ${headerSpan + 1}` }}>
           {currentLIF.eventName}
         </div>
-        {/* Header row - last column for wind */}
-        <div style={{ ...cellStyle, backgroundColor: '#003366', fontWeight: 'bold', justifyContent: 'flex-end' }}>
+        <div style={{ ...cellStyle, backgroundColor: theme.headerBg, color: theme.headerText, fontWeight: 'bold', justifyContent: 'flex-end' }}>
           {currentLIF.wind}
         </div>
 
         {/* Competitor rows */}
         {displayedCompetitors.map((comp, idx) => {
-          const bgColor = idx % 2 === 0 ? '#191970' : '#4682B4';
-          // Add border after row 2 in scroll mode to indicate locked top 3
+          const bgColor = idx % 2 === 0 ? theme.evenRowBg : theme.oddRowBg;
           const showBorder = currentLIF && currentLIF.competitors.length > 8 && idx === 2 && rotationMode === 'scroll';
-          const borderStyle = showBorder ? '3px solid black' : 'none';
+          const borderBottom = showBorder ? '3px solid black' : 'none';
 
           return (
             <React.Fragment key={idx}>
-              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle, fontWeight: 'bold', borderRight: '1px solid #666' }}>{comp.place}</div>
-              <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.id}</div>
-              <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>
-                {(comp.firstName ? comp.firstName + " " : "") + (comp.lastName || "")}
-              </div>
-              {hasAffiliation && <div style={{ ...cellStyle, backgroundColor: bgColor, borderBottom: borderStyle }}>{comp.affiliation}</div>}
-              <div style={{ padding: '2px 4px', whiteSpace: 'nowrap', backgroundColor: bgColor, borderBottom: borderStyle, textAlign: 'right' }}>{comp.time}</div>
+              {columnsToRender.map((colKey, ci) => {
+                const { content, style } = getCellContent(comp, colKey, theme, cellStyle);
+                return <div key={ci} style={{ ...style, backgroundColor: bgColor, borderBottom }}>{content}</div>;
+              })}
             </React.Fragment>
           );
         })}
