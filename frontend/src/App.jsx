@@ -78,6 +78,31 @@ const screensaverImageStyle = {
 };
 
 function App() {
+  // === INLINE COMPONENTS ===
+  const SegmentedControl = ({ options, selected, onChange }) => (
+    <div style={{ border: '1px solid #2a4a6b', borderRadius: 6, overflow: 'hidden', display: 'flex' }}>
+      {options.map((opt, i) => (
+        <div
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          style={{
+            flex: 1,
+            textAlign: 'center',
+            padding: '6px 6px',
+            fontSize: '0.8rem',
+            cursor: 'pointer',
+            backgroundColor: selected === opt.value ? '#2e7d32' : 'transparent',
+            color: selected === opt.value ? '#fff' : '#a0b4c8',
+            fontWeight: selected === opt.value ? 'bold' : 'normal',
+            ...(i > 0 ? { borderLeft: '1px solid #2a4a6b' } : {}),
+          }}
+        >
+          {opt.label}
+        </div>
+      ))}
+    </div>
+  );
+
   // === CORE STATE ===
   const [currentLifData, setCurrentLifData] = useState(null);
   const [lifDataHistory, setLifDataHistory] = useState([]);
@@ -93,7 +118,7 @@ function App() {
   const [linkedImage, setLinkedImage] = useState(null);
   
   // === UI STATE ===
-  const [textMultiplier, setTextMultiplier] = useState(62); // Default +2 from original
+  const [textMultiplier, setTextMultiplier] = useState(60);
   const [expandedTable, setExpandedTable] = useState(false);
   const [appFullScreen, setAppFullScreen] = useState(false);
   const [rotationIndex, setRotationIndex] = useState(0);
@@ -103,6 +128,18 @@ function App() {
   // === ALL-LIF DATA & SOCIAL GRAPHIC STATE ===
   const [allLifData, setAllLifData] = useState([]);
   const [showSocialGraphic, setShowSocialGraphic] = useState(false);
+
+  // === CUSTOM CLUB ACRONYMS & BIB TOGGLE ===
+  const [customAcronyms, setCustomAcronyms] = useState(null);
+  const [showBib, setShowBib] = useState(true);
+
+  // === UI COLLAPSE STATE ===
+  const [showWebViews, setShowWebViews] = useState(false);
+  const [showTextSize, setShowTextSize] = useState(false);
+  const [showRotation, setShowRotation] = useState(false);
+  const [showTheme, setShowTheme] = useState(false);
+  const [showBibs, setShowBibs] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   // === DEBUG STATE ===
   const [debugLog, setDebugLog] = useState([]);
@@ -245,8 +282,9 @@ function App() {
       } else if (currentLifData) {
         payload.currentLIF = currentLifData;
       }
-      // Include layout theme
+      // Include layout theme and bib toggle
       payload.layoutTheme = layoutTheme;
+      payload.showBib = showBib;
       console.log('[Desktop] Syncing display state:', {
         mode: payload.mode,
         activeText: payload.activeText,
@@ -397,14 +435,21 @@ function App() {
     const theme = THEMES[layoutTheme] || THEMES.classic;
     const compsForWidth = displayedCompetitors.map(c => ({
       ...c,
-      affiliation: shortenClub(c.affiliation),
+      affiliation: shortenClub(c.affiliation, customAcronyms),
     }));
     const { widths, totalCh, columns } = getColumnWidths(compsForWidth, theme.columns);
+    // Filter out bib column if showBib is false
+    const filteredColumns = showBib ? columns : columns.filter(c => c !== 'bib');
+    const filteredWidths = showBib ? widths : columns.reduce((acc, col, i) => {
+      if (col !== 'bib') acc.push(widths[i]);
+      return acc;
+    }, []);
+    const filteredTotal = filteredWidths.reduce((a, b) => a + b, 0);
     return {
-      colPercentages: widths.map(w => (w / totalCh) * 100 + '%'),
-      activeColumns: columns,
+      colPercentages: filteredWidths.map(w => (w / filteredTotal) * 100 + '%'),
+      activeColumns: filteredColumns,
     };
-  }, [displayedCompetitors, layoutTheme]);
+  }, [displayedCompetitors, layoutTheme, customAcronyms, showBib]);
 
   // Compute style for header event name cell — spans all columns except the last (wind).
   const headerColSpan = activeColumns.length - 1;
@@ -636,6 +681,12 @@ function App() {
         addDebugLog(`Layout theme synced from server: ${state.layoutTheme}`);
       }
 
+      // Update show bib setting
+      if (state.showBib !== undefined && state.showBib !== showBib) {
+        setShowBib(state.showBib);
+        addDebugLog(`Show bib synced from server: ${state.showBib}`);
+      }
+
       // Update display mode to match server - always sync to ensure UI reflects server state
       if (state.mode) {
         if (state.mode === 'lif') {
@@ -661,10 +712,28 @@ function App() {
     }
   };
 
+  // Fetch custom club acronyms from server
+  const fetchCustomAcronyms = async () => {
+    try {
+      const hostname = window.location.hostname;
+      const isDesktop = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+      const baseUrl = isDesktop ? 'http://127.0.0.1:3000' : '';
+      const response = await fetch(`${baseUrl}/club-acronyms`);
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data && Object.keys(data).length > 0) {
+        setCustomAcronyms(data);
+      }
+    } catch (err) {
+      // Silently fail - custom acronyms are non-critical
+    }
+  };
+
   // Data fetching effect - simple polling every 3 seconds
   useEffect(() => {
     fetchLatestData(); // Initial fetch
     fetchAllLifData(); // Initial fetch for stats
+    fetchCustomAcronyms(); // Initial fetch for custom acronyms
 
     // Only fetch display state if we're NOT in the Wails desktop app
     // Desktop app is the source of truth and only posts display state
@@ -679,12 +748,18 @@ function App() {
       }
     }, 3000);
 
+    // Poll custom acronyms every 10 seconds
+    const acronymInterval = setInterval(fetchCustomAcronyms, 10000);
+
     // Initial display state fetch for LAN viewers
     if (!isDesktopApp) {
       fetchDisplayState();
     }
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      clearInterval(acronymInterval);
+    };
   }, []); // No dependencies - pure polling
 
   // Web interface info effect
@@ -744,6 +819,15 @@ function App() {
       syncDisplayState(displayMode, activeText, linkedImage, rotationMode);
     }
   }, [layoutTheme]);
+
+  // Sync show bib changes to server (desktop app only)
+  useEffect(() => {
+    const hostname = window.location.hostname;
+    const isDesktopApp = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+    if (isDesktopApp) {
+      syncDisplayState(displayMode, activeText, linkedImage, rotationMode);
+    }
+  }, [showBib]);
 
   // Competitor rotation effect
   useEffect(() => {
@@ -862,9 +946,9 @@ function App() {
       case 'bib':
         return { content: comp.id, style: { ...base, textAlign: 'left', ...colStyle } };
       case 'name':
-        return { content: (comp.firstName ? comp.firstName + " " : "") + (comp.lastName || ""), style: { ...base, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...colStyle } };
+        return { content: (comp.firstName ? comp.firstName + " " : "") + (comp.lastName || ""), style: { ...base, textAlign: 'left', overflow: 'hidden', textOverflow: 'clip', whiteSpace: 'nowrap', ...colStyle } };
       case 'affiliation':
-        return { content: shortenClub(comp.affiliation), style: { ...base, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...colStyle } };
+        return { content: shortenClub(comp.affiliation, customAcronyms), style: { ...base, textAlign: 'left', overflow: 'hidden', textOverflow: 'clip', whiteSpace: 'nowrap', ...colStyle } };
       case 'time':
         return { content: comp.time, style: { ...base, textAlign: 'right', ...colStyle } };
       default:
@@ -1221,125 +1305,192 @@ function App() {
             <p style={{ color: '#7a9ab8', fontSize: '0.78rem', marginTop: '8px', marginBottom: 0 }}>Press Esc to exit either mode.</p>
           </div>
 
-          {/* 3. Text Size + Rotation Mode - side by side */}
+          {/* 3. Text Size - collapsible */}
           <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
-            <div style={{ display: 'flex', gap: '24px' }}>
-              {/* Text Size */}
-              <div>
-                <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Text Size</h6>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button onClick={decrementTextMultiplier} style={{
-                    backgroundColor: '#1565c0', color: '#ffffff', border: 'none', borderRadius: '6px',
-                    padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem',
-                  }}>&#8722;</button>
-                  <span style={{ minWidth: '44px', textAlign: 'center', fontWeight: 'bold', fontSize: '1rem', color: '#ffffff' }}>{textMultiplier}%</span>
-                  <button onClick={incrementTextMultiplier} style={{
-                    backgroundColor: '#1565c0', color: '#ffffff', border: 'none', borderRadius: '6px',
-                    padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem',
-                  }}>+</button>
+            <h6
+              onClick={() => setShowTextSize(!showTextSize)}
+              style={{ color: '#ffffff', marginBottom: showTextSize ? '8px' : 0, fontSize: '0.95rem', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {showTextSize ? '▾' : '▸'} Text Size ({textMultiplier}%)
+            </h6>
+            {showTextSize && (
+              <>
+                <p style={{ color: '#a0b4c8', fontSize: '0.8rem', marginBottom: '8px' }}>
+                  Alter the default text size for displays
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #2a4a6b', borderRadius: 6, overflow: 'hidden' }}>
+                  <div
+                    onClick={decrementTextMultiplier}
+                    style={{
+                      flex: 1, textAlign: 'center', padding: '6px 6px', fontSize: '0.8rem',
+                      cursor: 'pointer', fontWeight: 'bold', color: '#fff', backgroundColor: '#2e7d32',
+                    }}
+                  >&#8722;</div>
+                  <div style={{
+                    flex: 1, textAlign: 'center', padding: '6px 6px', fontSize: '0.8rem',
+                    fontWeight: 'bold', color: '#a0b4c8',
+                    borderLeft: '1px solid #2a4a6b', borderRight: '1px solid #2a4a6b',
+                  }}>{textMultiplier}%</div>
+                  <div
+                    onClick={incrementTextMultiplier}
+                    style={{
+                      flex: 1, textAlign: 'center', padding: '6px 6px', fontSize: '0.8rem',
+                      cursor: 'pointer', fontWeight: 'bold', color: '#fff', backgroundColor: '#2e7d32',
+                    }}
+                  >+</div>
                 </div>
-              </div>
+              </>
+            )}
+          </div>
 
-              {/* Rotation Mode */}
-              <div style={{ flex: 1 }}>
-                <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Rotation Mode</h6>
-                <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-                  {['scroll', 'page', 'scrollAll'].map((mode) => (
-                    <button key={mode} onClick={() => setRotationMode(mode)} style={{
-                      flex: 1, backgroundColor: rotationMode === mode ? '#2e7d32' : 'transparent',
-                      color: rotationMode === mode ? '#ffffff' : '#a0b4c8',
-                      border: `1px solid ${rotationMode === mode ? '#2e7d32' : '#2a4a6b'}`,
-                      borderRadius: '6px', padding: '6px 8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: rotationMode === mode ? 'bold' : 'normal',
-                    }}>
-                      {mode === 'scrollAll' ? 'Scroll All' : mode.charAt(0).toUpperCase() + mode.slice(1)}
-                    </button>
-                  ))}
-                </div>
-                <p style={{ color: '#7a9ab8', fontSize: '0.78rem', marginBottom: 0 }}>
+          {/* 4. Rotation Mode - collapsible */}
+          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
+            <h6
+              onClick={() => setShowRotation(!showRotation)}
+              style={{ color: '#ffffff', marginBottom: showRotation ? '8px' : 0, fontSize: '0.95rem', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {showRotation ? '▾' : '▸'} Rotation Mode
+            </h6>
+            {showRotation && (
+              <>
+                <p style={{ color: '#a0b4c8', fontSize: '0.8rem', marginBottom: '8px' }}>
+                  Select how results with more than 8 athletes display
+                </p>
+                <SegmentedControl
+                  options={[
+                    { value: 'scroll', label: 'Scroll' },
+                    { value: 'page', label: 'Page' },
+                    { value: 'scrollAll', label: 'Scroll All' },
+                  ]}
+                  selected={rotationMode}
+                  onChange={setRotationMode}
+                />
+                <p style={{ color: '#7a9ab8', fontSize: '0.78rem', marginTop: '6px', marginBottom: 0 }}>
                   {rotationMode === 'scroll' && 'Top 3 locked, positions 4+ scroll'}
                   {rotationMode === 'page' && 'Pages of 8: 1-8, 9-16, etc.'}
                   {rotationMode === 'scrollAll' && 'All 8 positions scroll through'}
                 </p>
-              </div>
-            </div>
+              </>
+            )}
+          </div>
 
-            {/* Display Theme */}
-            <div style={{ marginTop: '12px' }}>
-              <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Display Theme</h6>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {Object.entries(THEMES).map(([key, theme]) => (
-                  <button key={key} onClick={() => setLayoutTheme(key)} style={{
-                    flex: 1, backgroundColor: layoutTheme === key ? '#2e7d32' : 'transparent',
-                    color: layoutTheme === key ? '#ffffff' : '#a0b4c8',
-                    border: `1px solid ${layoutTheme === key ? '#2e7d32' : '#2a4a6b'}`,
-                    borderRadius: '6px', padding: '6px 8px', cursor: 'pointer', fontSize: '0.85rem',
-                    fontWeight: layoutTheme === key ? 'bold' : 'normal',
+          {/* 5. Display Theme - collapsible */}
+          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
+            <h6
+              onClick={() => setShowTheme(!showTheme)}
+              style={{ color: '#ffffff', marginBottom: showTheme ? '8px' : 0, fontSize: '0.95rem', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {showTheme ? '▾' : '▸'} Display Theme
+            </h6>
+            {showTheme && (
+              <>
+                <p style={{ color: '#a0b4c8', fontSize: '0.8rem', marginBottom: '8px' }}>
+                  Set the default layout and colour scheme for all displays
+                </p>
+                <SegmentedControl
+                  options={Object.entries(THEMES).map(([key, theme]) => ({ value: key, label: theme.name }))}
+                  selected={layoutTheme}
+                  onChange={setLayoutTheme}
+                />
+              </>
+            )}
+          </div>
+
+          {/* 6. Bib Settings - collapsible */}
+          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
+            <h6
+              onClick={() => setShowBibs(!showBibs)}
+              style={{ color: '#ffffff', marginBottom: showBibs ? '8px' : 0, fontSize: '0.95rem', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {showBibs ? '▾' : '▸'} Bib Settings
+            </h6>
+            {showBibs && (
+              <>
+                <p style={{ color: '#a0b4c8', fontSize: '0.8rem', marginBottom: '8px' }}>
+                  Show or hide bibs from the displays
+                </p>
+                <SegmentedControl
+                  options={[
+                    { value: true, label: 'Show Bibs' },
+                    { value: false, label: 'Hide Bibs' },
+                  ]}
+                  selected={showBib}
+                  onChange={setShowBib}
+                />
+              </>
+            )}
+          </div>
+
+          {/* 6. Web Views - collapsible */}
+          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
+            <h6
+              onClick={() => setShowWebViews(!showWebViews)}
+              style={{ color: '#ffffff', marginBottom: showWebViews ? '8px' : 0, fontSize: '0.95rem', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {showWebViews ? '▾' : '▸'} Web Views
+            </h6>
+            {showWebViews && (
+              <>
+                <p style={{ color: '#a0b4c8', fontSize: '0.8rem', marginBottom: '8px' }}>
+                  Open display pages accessible to anyone on the local network.
+                </p>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <Link to="/results" style={{ flex: 1, textDecoration: 'none' }}>
+                    <button style={{
+                      width: '100%', backgroundColor: '#1565c0', color: '#ffffff', border: 'none',
+                      borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
+                    }}>Multi Result Mode</button>
+                  </Link>
+                  <button onClick={() => {
+                    const hn = window.location.hostname;
+                    const isDesktop = hn === '' || hn === 'wails.localhost' || window.location.protocol === 'wails:';
+                    window.open(isDesktop ? 'http://127.0.0.1:3000/athlete' : `${window.location.origin}/athlete`, '_blank');
+                  }} style={{
+                    flex: 1, backgroundColor: '#1565c0', color: '#ffffff', border: 'none',
+                    borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
                   }}>
-                    {theme.name}
+                    <span style={{ marginRight: '6px' }}>&#128269;</span>Athlete Search
                   </button>
+                  <button onClick={() => setShowSocialGraphic(true)} style={{
+                    flex: 1, backgroundColor: '#e65100', color: '#ffffff', border: 'none',
+                    borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
+                  }}>Social Graphic</button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* 7. Competition Stats - collapsible */}
+          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
+            <h6
+              onClick={() => setShowStats(!showStats)}
+              style={{ color: '#ffffff', marginBottom: showStats ? '8px' : 0, fontSize: '0.95rem', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {showStats ? '▾' : '▸'} Competition Stats
+            </h6>
+            {showStats && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {[
+                  { value: competitionStats.totalDistance, label: 'Total Distance' },
+                  { value: competitionStats.totalAthletes, label: 'Race Entries' },
+                  { value: competitionStats.totalTime, label: 'Total Race Time' },
+                  { value: competitionStats.avgWind, label: 'Average Wind' },
+                ].map((stat, i) => (
+                  <div key={i} style={{
+                    backgroundColor: '#0a1628',
+                    border: '1px solid #1a3050',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    textAlign: 'center',
+                  }}>
+                    <div style={{ color: '#FFD700', fontWeight: 'bold', fontSize: '1.2rem', marginBottom: '2px' }}>
+                      {stat.value}
+                    </div>
+                    <div style={{ color: '#7a9ab8', fontSize: '0.75rem' }}>{stat.label}</div>
+                  </div>
                 ))}
               </div>
-            </div>
-          </div>
-
-          {/* 4. Web Views */}
-          <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #1a3050' }}>
-            <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Web Views</h6>
-            <p style={{ color: '#a0b4c8', fontSize: '0.8rem', marginBottom: '8px' }}>
-              Open display pages accessible to anyone on the local network.
-            </p>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <Link to="/results" style={{ flex: 1, textDecoration: 'none' }}>
-                <button style={{
-                  width: '100%', backgroundColor: '#1565c0', color: '#ffffff', border: 'none',
-                  borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
-                }}>Multi Result Mode</button>
-              </Link>
-              <button onClick={() => {
-                const hn = window.location.hostname;
-                const isDesktop = hn === '' || hn === 'wails.localhost' || window.location.protocol === 'wails:';
-                window.open(isDesktop ? 'http://127.0.0.1:3000/athlete' : `${window.location.origin}/athlete`, '_blank');
-              }} style={{
-                flex: 1, backgroundColor: '#1565c0', color: '#ffffff', border: 'none',
-                borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
-              }}>
-                <span style={{ marginRight: '6px' }}>&#128269;</span>Athlete Search
-              </button>
-              <button onClick={() => setShowSocialGraphic(true)} style={{
-                flex: 1, backgroundColor: '#e65100', color: '#ffffff', border: 'none',
-                borderRadius: '6px', padding: '10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem',
-              }}>Social Graphic</button>
-            </div>
-          </div>
-
-          {/* 5. Live Competition Stats */}
-          <div>
-            <h6 style={{ color: '#ffffff', marginBottom: '8px', fontSize: '0.95rem' }}>Competition Stats</h6>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '10px',
-            }}>
-              {[
-                { value: competitionStats.totalDistance, label: 'Total Distance' },
-                { value: competitionStats.totalAthletes, label: 'Race Entries' },
-                { value: competitionStats.totalTime, label: 'Total Race Time' },
-                { value: competitionStats.avgWind, label: 'Average Wind' },
-              ].map((stat, i) => (
-                <div key={i} style={{
-                  backgroundColor: '#0a1628',
-                  border: '1px solid #1a3050',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  textAlign: 'center',
-                }}>
-                  <div style={{ color: '#FFD700', fontWeight: 'bold', fontSize: '1.2rem', marginBottom: '2px' }}>
-                    {stat.value}
-                  </div>
-                  <div style={{ color: '#7a9ab8', fontSize: '0.75rem' }}>{stat.label}</div>
-                </div>
-              ))}
-            </div>
+            )}
           </div>
 
         </div>

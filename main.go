@@ -66,16 +66,18 @@ type DisplayState struct {
 	RotationMode string   `json:"rotationMode"` // 'scroll', 'page', or 'scrollAll'
 	LayoutTheme  string   `json:"layoutTheme"`  // 'classic', 'modernDark', 'light', or 'highContrast'
 	CurrentLIF   *LifData `json:"currentLIF"`   // Current single event LIF for full screen mode
+	ShowBib      bool     `json:"showBib"`      // Whether to show bib column in tables
 }
 
 // App holds the application state.
 type App struct {
-	ctx          context.Context
-	mu           sync.Mutex
-	monitoredDir string
-	latestData   *LifData
-	watcher      *fsnotify.Watcher
-	displayState *DisplayState
+	ctx                context.Context
+	mu                 sync.Mutex
+	monitoredDir       string
+	latestData         *LifData
+	watcher            *fsnotify.Watcher
+	displayState       *DisplayState
+	customClubAcronyms map[string]string // lowercased full name -> acronym
 }
 
 // NewApp creates a new App instance.
@@ -87,7 +89,9 @@ func NewApp() *App {
 			ImageBase64:  "",
 			RotationMode: "scroll",
 			LayoutTheme:  "classic",
+			ShowBib:      true,
 		},
+		customClubAcronyms: make(map[string]string),
 	}
 }
 
@@ -154,12 +158,31 @@ func (a *App) SetLayoutTheme(layoutTheme string) {
 	log.Printf("Layout theme updated: %s", layoutTheme)
 }
 
+// SetShowBib updates the show bib setting (called from frontend)
+func (a *App) SetShowBib(show bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.displayState == nil {
+		a.displayState = &DisplayState{
+			Mode:         "lif",
+			ActiveText:   "",
+			ImageBase64:  "",
+			RotationMode: "scroll",
+			LayoutTheme:  "classic",
+			ShowBib:      show,
+		}
+	} else {
+		a.displayState.ShowBib = show
+	}
+	log.Printf("Show bib updated: %v", show)
+}
+
 // GetDisplayState returns the current display state
 func (a *App) GetDisplayState() *DisplayState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.displayState == nil {
-		return &DisplayState{Mode: "lif", ActiveText: "", ImageBase64: "", RotationMode: "scroll", LayoutTheme: "classic"}
+		return &DisplayState{Mode: "lif", ActiveText: "", ImageBase64: "", RotationMode: "scroll", LayoutTheme: "classic", ShowBib: true}
 	}
 	return a.displayState
 }
@@ -185,6 +208,7 @@ func (a *App) ChooseDirectory() (string, error) {
 	}
 	log.Println("Directory selected:", dir)
 	a.monitoredDir = dir
+	a.initClubList()
 	go a.watchDirectory()
 	return dir, nil
 }
@@ -229,6 +253,92 @@ func (a *App) ExitFullScreen() {
 	runtime.WindowUnfullscreen(a.ctx)
 }
 
+// generateClubListCSV writes the default club acronyms to a club-list.csv file in the given directory.
+func (a *App) generateClubListCSV(dir string) error {
+	csvPath := filepath.Join(dir, "club-list.csv")
+	f, err := os.Create(csvPath)
+	if err != nil {
+		return fmt.Errorf("failed to create club-list.csv: %v", err)
+	}
+	defer f.Close()
+
+	writer := csv.NewWriter(f)
+	defer writer.Flush()
+
+	// Sort keys for consistent output
+	keys := make([]string, 0, len(defaultClubAcronyms))
+	for k := range defaultClubAcronyms {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, name := range keys {
+		if err := writer.Write([]string{defaultClubAcronyms[name], name}); err != nil {
+			return fmt.Errorf("failed to write CSV row: %v", err)
+		}
+	}
+
+	log.Printf("Generated club-list.csv with %d entries in %s", len(defaultClubAcronyms), dir)
+	return nil
+}
+
+// loadClubListCSV reads a club-list.csv file and returns a lowercased name -> acronym map.
+func loadClubListCSV(dir string) (map[string]string, error) {
+	csvPath := filepath.Join(dir, "club-list.csv")
+	f, err := os.Open(csvPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	reader := csv.NewReader(f)
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read club-list.csv: %v", err)
+	}
+
+	result := make(map[string]string, len(records))
+	for _, row := range records {
+		if len(row) < 2 {
+			continue
+		}
+		acronym := strings.TrimSpace(row[0])
+		fullName := strings.TrimSpace(row[1])
+		if acronym != "" && fullName != "" {
+			result[strings.ToLower(fullName)] = acronym
+		}
+	}
+
+	log.Printf("Loaded %d custom club acronyms from club-list.csv", len(result))
+	return result, nil
+}
+
+// initClubList initializes the club-list.csv file for the monitored directory.
+func (a *App) initClubList() {
+	if a.monitoredDir == "" {
+		return
+	}
+
+	csvPath := filepath.Join(a.monitoredDir, "club-list.csv")
+	if _, err := os.Stat(csvPath); os.IsNotExist(err) {
+		if err := a.generateClubListCSV(a.monitoredDir); err != nil {
+			log.Printf("Error generating club-list.csv: %v", err)
+			return
+		}
+	}
+
+	acronyms, err := loadClubListCSV(a.monitoredDir)
+	if err != nil {
+		log.Printf("Error loading club-list.csv: %v", err)
+		return
+	}
+
+	a.mu.Lock()
+	a.customClubAcronyms = acronyms
+	a.mu.Unlock()
+}
+
 func (a *App) watchDirectory() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -249,6 +359,22 @@ func (a *App) watchDirectory() {
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return
+			}
+			// Handle club-list.csv changes
+			if filepath.Base(event.Name) == "club-list.csv" &&
+				(event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
+				log.Println("Detected change in club-list.csv, reloading...")
+				time.Sleep(100 * time.Millisecond)
+				acronyms, err := loadClubListCSV(a.monitoredDir)
+				if err != nil {
+					log.Printf("Error reloading club-list.csv: %v", err)
+				} else {
+					a.mu.Lock()
+					a.customClubAcronyms = acronyms
+					a.mu.Unlock()
+					log.Printf("Reloaded %d custom club acronyms", len(acronyms))
+				}
+				continue
 			}
 			ext := strings.ToLower(filepath.Ext(event.Name))
 			if (ext == ".lif" || ext == ".res" || ext == ".txt") &&
@@ -958,8 +1084,19 @@ func StartFiberServer(app *App) {
 		if state.LayoutTheme != "" {
 			app.SetLayoutTheme(state.LayoutTheme)
 		}
+		app.SetShowBib(state.ShowBib)
 		app.SetCurrentLIF(state.CurrentLIF)
 		return c.JSON(map[string]interface{}{"success": true})
+	})
+	// API endpoint to get custom club acronyms.
+	fiberApp.Get("/club-acronyms", func(c *fiber.Ctx) error {
+		app.mu.Lock()
+		acronyms := app.customClubAcronyms
+		app.mu.Unlock()
+		if acronyms == nil {
+			return c.JSON(map[string]string{})
+		}
+		return c.JSON(acronyms)
 	})
 	// Serve static files from embedded assets using the filesystem middleware.
 	dist, err := fs.Sub(assets, "frontend/dist")

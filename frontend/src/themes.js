@@ -2118,15 +2118,24 @@ export const CLUB_ACRONYMS = {
 // Case-insensitive fuzzy match: checks if any key is contained within
 // the affiliation string (or vice versa).
 // Returns the acronym if found, otherwise the original string.
-export function shortenClub(affiliation) {
+export function shortenClub(affiliation, customAcronyms) {
   if (!affiliation) return affiliation;
   const trimmed = affiliation.trim();
   if (!trimmed) return trimmed;
   const lower = trimmed.toLowerCase();
 
+  // Check custom acronyms first (from club-list.csv) — exact match only
+  if (customAcronyms) {
+    for (const [clubName, acronym] of Object.entries(customAcronyms)) {
+      if (lower === clubName.toLowerCase()) {
+        return acronym;
+      }
+    }
+  }
+
+  // Fall through to hardcoded CLUB_ACRONYMS — exact match only
   for (const [clubName, acronym] of Object.entries(CLUB_ACRONYMS)) {
-    const clubLower = clubName.toLowerCase();
-    if (lower.includes(clubLower) || clubLower.includes(lower)) {
+    if (lower === clubName.toLowerCase()) {
       return acronym;
     }
   }

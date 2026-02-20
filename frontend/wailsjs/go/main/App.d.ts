@@ -23,3 +23,5 @@ export function SetDisplayState(arg1:string,arg2:string,arg3:string):Promise<voi
 export function SetLayoutTheme(arg1:string):Promise<void>;
 
 export function SetRotationMode(arg1:string):Promise<void>;
+
+export function SetShowBib(arg1:boolean):Promise<void>;

@@ -30,6 +30,10 @@ function Results() {
   const [syncedActiveText, setSyncedActiveText] = useState('');
   const [syncedImageBase64, setSyncedImageBase64] = useState('');
 
+  // Custom club acronyms and bib toggle
+  const [customAcronyms, setCustomAcronyms] = useState(null);
+  const [showBib, setShowBib] = useState(true);
+
   // Auto-hide control bar for web browsers
   const [showControls, setShowControls] = useState(true);
   const [hideTimeout, setHideTimeout] = useState(null);
@@ -66,6 +70,28 @@ function Results() {
     return () => clearInterval(interval);
   }, [refreshFlag]);
 
+  // Fetch custom club acronyms
+  useEffect(() => {
+    async function fetchAcronyms() {
+      try {
+        const hostname = window.location.hostname;
+        const isDesktop = hostname === '' || hostname === 'wails.localhost' || window.location.protocol === 'wails:';
+        const baseUrl = isDesktop ? 'http://127.0.0.1:3000' : '';
+        const response = await fetch(`${baseUrl}/club-acronyms`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data && Object.keys(data).length > 0) {
+          setCustomAcronyms(data);
+        }
+      } catch (err) {
+        // Silently fail
+      }
+    }
+    fetchAcronyms();
+    const interval = setInterval(fetchAcronyms, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Fetch display state from server (for current LIF, rotation mode, and display overlays)
   useEffect(() => {
     async function fetchDisplayState() {
@@ -90,6 +116,11 @@ function Results() {
         // Update layout theme if available
         if (state.layoutTheme) {
           setLayoutTheme(state.layoutTheme);
+        }
+
+        // Update show bib setting
+        if (state.showBib !== undefined) {
+          setShowBib(state.showBib);
         }
 
         // Update display mode and overlays (text/screensaver)
@@ -499,7 +530,7 @@ function Results() {
       case 'name':
         return { content: (comp.firstName ? comp.firstName + " " : "") + (comp.lastName || ""), style: { ...base, ...colOverride } };
       case 'affiliation':
-        return { content: shortenClub(comp.affiliation), style: { ...base, ...colOverride } };
+        return { content: shortenClub(comp.affiliation, customAcronyms), style: { ...base, ...colOverride } };
       case 'time':
         return { content: comp.time, style: { ...base, justifyContent: 'flex-end', ...colOverride } };
       default:
@@ -517,12 +548,13 @@ function Results() {
       : [...competitors, ...Array(8 - competitors.length).fill({ place: "", id: "", firstName: "", lastName: "", affiliation: "", time: "" })];
 
     // Apply shortenClub for width calculation
-    const compsForWidth = displayedCompetitors.map(c => ({ ...c, affiliation: shortenClub(c.affiliation) }));
+    const compsForWidth = displayedCompetitors.map(c => ({ ...c, affiliation: shortenClub(c.affiliation, customAcronyms) }));
     const { columns: activeColumns } = getColumnWidths(compsForWidth, theme.columns);
     const hasAffiliation = activeColumns.includes('affiliation') && compsForWidth.some(c => c.affiliation && c.affiliation.length > 0);
 
-    // If no affiliation data, filter it out
-    const columnsToRender = hasAffiliation ? activeColumns : activeColumns.filter(c => c !== 'affiliation');
+    // If no affiliation data, filter it out; also filter bib if showBib is false
+    let columnsToRender = hasAffiliation ? activeColumns : activeColumns.filter(c => c !== 'affiliation');
+    if (!showBib) columnsToRender = columnsToRender.filter(c => c !== 'bib');
 
     // Place and time: max-content so they NEVER clip.
     // Name: 1fr (fills remaining, clips if needed).
@@ -646,11 +678,12 @@ function Results() {
     }
 
     // Apply shortenClub for width calculation
-    const compsForWidth = displayedCompetitors.map(c => ({ ...c, affiliation: shortenClub(c.affiliation) }));
+    const compsForWidth = displayedCompetitors.map(c => ({ ...c, affiliation: shortenClub(c.affiliation, customAcronyms) }));
     const { columns: activeColumns } = getColumnWidths(compsForWidth, theme.columns);
     const hasAffiliation = activeColumns.includes('affiliation') && compsForWidth.some(c => c.affiliation && c.affiliation.length > 0);
 
-    const columnsToRender = hasAffiliation ? activeColumns : activeColumns.filter(c => c !== 'affiliation');
+    let columnsToRender = hasAffiliation ? activeColumns : activeColumns.filter(c => c !== 'affiliation');
+    if (!showBib) columnsToRender = columnsToRender.filter(c => c !== 'bib');
 
     // Place and time: max-content so they NEVER clip.
     // Name: 1fr (fills remaining, clips if needed).

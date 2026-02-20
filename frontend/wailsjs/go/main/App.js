@@ -45,3 +45,7 @@ export function SetLayoutTheme(arg1) {
 export function SetRotationMode(arg1) {
   return window['go']['main']['App']['SetRotationMode'](arg1);
 }
+
+export function SetShowBib(arg1) {
+  return window['go']['main']['App']['SetShowBib'](arg1);
+}
