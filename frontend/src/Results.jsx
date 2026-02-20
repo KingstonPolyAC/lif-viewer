@@ -816,7 +816,7 @@ function Results() {
 
               {/* Version Info */}
               <div>
-                <small className="text-muted">Version 3.0.0 - Gordon Lester - support@polyfield.co.uk</small>
+                <small className="text-muted">Version 3.1.0 - Gordon Lester - support@polyfield.co.uk</small>
               </div>
             </div>
           </div>

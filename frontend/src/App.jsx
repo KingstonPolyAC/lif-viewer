@@ -1039,7 +1039,7 @@ function App() {
             </tbody>
           </table>
           <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Press Esc to exit expanded table mode.</div>
-          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 3.0.0 - Gordon Lester - support@polyfield.co.uk</div>
+          <div style={{ padding: '2px 4px', color: 'white', backgroundColor: 'black' }}>Version 3.1.0 - Gordon Lester - support@polyfield.co.uk</div>
         </div>
       );
     } else {
@@ -1352,7 +1352,7 @@ function App() {
           borderTop: '1px solid #1a3050',
           backgroundColor: '#0a1628',
         }}>
-          Version 3.0.0 - Gordon Lester - support@polyfield.co.uk
+          Version 3.1.0 - Gordon Lester - support@polyfield.co.uk
         </div>
       </div>
 

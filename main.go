@@ -24,6 +24,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
+	"github.com/hashicorp/mdns"
 	"github.com/saintfish/chardet"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -859,6 +860,60 @@ func (a *App) GetWebInterfaceInfo() string {
 	return fmt.Sprintf("Access the web interface at: http://localhost:3000 or http://%s:3000", hostIP)
 }
 
+// getLANIPs returns the non-loopback IPv4 addresses of this machine.
+func getLANIPs() []net.IP {
+	var ips []net.IP
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if ip4 := ipnet.IP.To4(); ip4 != nil {
+					ips = append(ips, ip4)
+				}
+			}
+		}
+	}
+	return ips
+}
+
+// startMDNS registers "track.local" via mDNS so LAN devices can reach the server.
+func startMDNS() {
+	ips := getLANIPs()
+	if len(ips) == 0 {
+		log.Println("mDNS: no LAN IP addresses found, skipping registration")
+		return
+	}
+	service, err := mdns.NewMDNSService(
+		"PolyField Track", // instance name
+		"_http._tcp",      // service type
+		"",                // domain (default "local.")
+		"track.local.",    // custom hostname
+		3000,              // port
+		ips,               // IP addresses
+		[]string{"path=/"},
+	)
+	if err != nil {
+		log.Printf("mDNS: failed to create service: %v", err)
+		return
+	}
+	_, err = mdns.NewServer(&mdns.Config{Zone: service})
+	if err != nil {
+		log.Printf("mDNS: failed to start server: %v", err)
+		return
+	}
+	log.Printf("mDNS: registered track.local -> %v", ips)
+}
+
 func StartFiberServer(app *App) {
 	fiberApp := fiber.New()
 	fiberApp.Use(cors.New(cors.Config{
@@ -934,6 +989,7 @@ func StartFiberServer(app *App) {
 func main() {
 	app := NewApp()
 	go StartFiberServer(app)
+	go startMDNS()
 	err := wails.Run(&options.App{
 		Title:            "PolyField - Track",
 		Width:            800,
